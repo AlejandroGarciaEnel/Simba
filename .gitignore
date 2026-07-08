@@ -1,0 +1,19 @@
+# Credenciales — nunca subir
+.env
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Informes generados
+dbcheck_*.html
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/

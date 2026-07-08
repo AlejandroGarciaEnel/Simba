@@ -1,0 +1,6 @@
+langchain>=1.0.0,<2.0.0
+langchain-openai>=0.3.0,<2.0.0
+cx_Oracle
+python-dotenv
+jinja2
+tabulate
