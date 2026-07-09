@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Inicializar FastAPI
 app = FastAPI(
-    title="dbAgent API",
+    title="SIMBA API",
     description="API para agente de monitorización Oracle",
     version="1.0.0"
 )

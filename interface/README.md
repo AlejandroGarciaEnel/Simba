@@ -1,4 +1,4 @@
-# dbAgent - Interfaz Web
+# SIMBA - Interfaz Web
 
 Interfaz conversacional web estilo Gemini para el monitor de base de datos Oracle.
 
