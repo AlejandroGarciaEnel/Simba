@@ -161,25 +161,27 @@ class ChatHandler:
         user_lower = user_msg.lower()
         return any(keyword in user_lower for keyword in keywords)
     
-    def generate_report(self) -> Tuple[bool, bytes, str]:
+    def generate_report(self) -> Tuple[bool, str, str]:
         """
         Genera un informe HTML.
         
         Returns:
-            (éxito: bool, contenido_bytes: bytes, nombre_archivo: str)
+            (éxito: bool, filename: str, ruta_completa: str)
         """
         try:
-            from report.generator import ReportGenerator
+            from report.generator import generate
+            from pathlib import Path
             
-            generator = ReportGenerator()
-            html_content = generator.generate()
+            # generate() ya guarda en disco y retorna la ruta completa
+            output_path = generate()
             
-            filename = f"dbcheck_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+            # Extraer solo el filename
+            filename = Path(output_path).name
             
-            return True, html_content.encode('utf-8'), filename
+            return True, filename, output_path
             
         except Exception as e:
-            return False, b"", str(e)
+            return False, "", str(e)
     
     def reset_connection(self) -> Tuple[bool, str]:
         """

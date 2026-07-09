@@ -106,17 +106,16 @@ async def chat(payload: ChatMessage):
         
         # Si es solicitud de informe, generarlo
         if result.get("is_report"):
-            success, html_content, filename = chat_handler.generate_report()
+            success, filename, output_path = chat_handler.generate_report()
             if success:
                 result["report"] = {
                     "success": True,
-                    "filename": filename,
-                    "size": len(html_content)
+                    "filename": filename
                 }
             else:
                 result["report"] = {
                     "success": False,
-                    "error": html_content
+                    "error": filename
                 }
         
         return result
