@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIMBA</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">SIMBA</h1>
+                <p class="subtitle">Monitor Oracle</p>
+            </div>
+            
+            <div class="theme-toggle">
+                <button id="theme-btn" class="theme-btn" title="Cambiar tema">
+                    <span class="theme-icon">🌙</span>
+                </button>
+            </div>
+            
+            <div class="quick-actions">
+                <h3>Acciones rápidas</h3>
+                <button class="quick-action-btn" data-query="¿Cuánta CPU está usando la base de datos?">
+                    📊 CPU Actual
+                </button>
+                <button class="quick-action-btn" data-query="Dame las 5 queries que más CPU consumen">
+                    🔥 Top Queries CPU
+                </button>
+                <button class="quick-action-btn" data-query="Muéstrame las sesiones que más CPU están demandando">
+                    ⚡ Sesiones CPU
+                </button>
+                <button class="quick-action-btn" data-query="¿Qué sesiones están bloqueadas?">
+                    🔒 Bloqueos
+                </button>
+                <button class="quick-action-btn" data-query="Muéstrame usuarios con más sesiones inactivas">
+                    😴 Sesiones Inactivas
+                </button>
+            </div>
+            
+            <div class="sidebar-footer">
+                <button id="clear-history-btn" class="footer-btn">
+                    🗑️ Limpiar historial
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-container">
+            <div class="chat-header">
+                <h2>Chat con el Agente de Monitorización</h2>
+                <div class="connection-status" id="connection-status">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Conectando...</span>
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chat-messages">
+                <div class="message assistant-message initial-message">
+                    <div class="message-content">
+                        <p>Hola 👋 Soy tu asistente de monitorización de bases de datos Oracle.</p>
+                        <p>Puedo ayudarte a:</p>
+                        <ul>
+                            <li>Ver el uso actual de CPU</li>
+                            <li>Identificar queries pesadas</li>
+                            <li>Detectar sesiones bloqueadas</li>
+                            <li>Encontrar sesiones inactivas</li>
+                            <li>Generar informes completos en HTML</li>
+                        </ul>
+                        <p>¿Qué deseas saber? Usa los botones de la izquierda o escribe tu pregunta.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="error-banner" id="error-banner" style="display: none;">
+                <div class="error-content">
+                    <span class="error-text" id="error-text"></span>
+                    <button id="retry-btn" class="retry-btn" style="display: none;">🔄 Reintentar</button>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="user-input" 
+                        placeholder="Escribe tu pregunta aquí..." 
+                        rows="3"
+                        autocomplete="off"
+                    ></textarea>
+                    <button id="send-btn" class="send-btn" title="Enviar (Enter + Ctrl)">
+                        <span class="send-icon">➤</span>
+                    </button>
+                </div>
+                <div class="input-info">
+                    <small>💡 Presiona <kbd>Ctrl</kbd>+<kbd>Enter</kbd> para enviar</small>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

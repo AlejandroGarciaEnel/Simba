@@ -15,7 +15,7 @@ load_dotenv()
 
 BANNER = """
 ╔══════════════════════════════════════════════════════════╗
-║          Monitor BBDD Oracle — Agente Conversacional     ║
+║          Monitor BBDD Oracle — Agente Simba              ║
 ╠══════════════════════════════════════════════════════════╣
 ║  Puedes preguntarme cosas como:                          ║
 ║  · ¿Cuánta CPU está usando la base de datos?             ║
@@ -100,7 +100,7 @@ def main() -> None:
         except Exception as exc:
             answer = f"[ERROR al procesar la consulta: {exc}]"
 
-        print(f"\nAgente: {answer}\n")
+        print(f"\nSimba: {answer}\n")
 
     # El cierre de la conexión lo gestiona atexit en db/connection.py
 
