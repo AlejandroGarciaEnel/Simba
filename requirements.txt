@@ -4,3 +4,5 @@ cx_Oracle
 python-dotenv
 jinja2
 tabulate
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
