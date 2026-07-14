@@ -5,8 +5,9 @@ Configura el agente LangChain con GPT-4o y las herramientas del monitor.
 from __future__ import annotations
 
 import os
-from typing import Any
+import ssl
 
+import httpx
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
@@ -39,12 +40,19 @@ Si no puedes resolver una petición con las herramientas disponibles, indícalo 
 """
 
 
-def build_agent() -> Any:
+def build_agent():
     model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+
+    # Entornos corporativos con proxy SSL autofirmado requieren deshabilitar
+    # la verificación de certificados. Controlado por SSL_VERIFY en .env.
+    ssl_verify = os.environ.get("SSL_VERIFY", "true").lower() not in ("false", "0", "no")
+    http_client = httpx.Client(verify=ssl_verify)
+
     llm = ChatOpenAI(
         model=model,
         temperature=0,
         base_url=os.environ.get("OPENAI_BASE_URL"),
+        http_client=http_client,
     )
 
     return create_agent(
