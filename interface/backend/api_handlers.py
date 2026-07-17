@@ -156,10 +156,24 @@ class ChatHandler:
     def _is_report_request(self, user_msg: str) -> bool:
         """
         Detecta si la solicitud es para generar un informe.
+        Solo dispara con frases explícitas para evitar falsos positivos.
         """
-        keywords = ["informe", "reporte", "report", "generar", "genera", "crear", "html"]
-        user_lower = user_msg.lower()
-        return any(keyword in user_lower for keyword in keywords)
+        normalized = " ".join((user_msg or "").strip().lower().split())
+        allowed_exact_requests = {
+            "genera un informe",
+            "genera un informe html",
+            "genera un informe completo",
+            "genera un informe completo en html",
+            "generar informe",
+            "generar informe html",
+            "generar informe completo",
+            "generar informe completo en html",
+            "crear informe",
+            "crear informe html",
+            "crear informe completo",
+            "crear informe completo en html",
+        }
+        return normalized in allowed_exact_requests
     
     def generate_report(self) -> Tuple[bool, str, str]:
         """

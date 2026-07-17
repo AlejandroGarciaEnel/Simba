@@ -149,7 +149,8 @@ async def download_report(filename: str):
     """
     try:
         # Validar nombre de archivo (seguridad)
-        if not filename.startswith("dbcheck_") or not filename.endswith(".html"):
+        is_valid_prefix = filename.startswith("dbcheck_") or filename.startswith("dbCheck_")
+        if not is_valid_prefix or not filename.endswith(".html"):
             raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
         
         file_path = PROJECT_ROOT / filename
