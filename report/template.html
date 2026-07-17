@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>dbCheck - Informe</title>
+    <title>Informe SIMBA</title>
     <style>
 :root {
     --ok: #2e7d32;
@@ -35,6 +35,17 @@ h2 { margin: 0 0 12px; }
     margin-bottom: 16px;
     box-shadow: 0 10px 20px rgba(15,23,42,0.06);
 }
+.subcard {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-top: 12px;
+}
+.subcard h3 {
+    margin: 0 0 8px;
+    font-size: 1rem;
+}
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: 12px; }
 .kpi-title { margin: 0; font-size: 0.9rem; color: var(--muted); }
 .kpi-value { margin: 8px 0 0; font-size: 1.8rem; font-weight: 700; }
@@ -59,188 +70,330 @@ td.sql { max-width: 520px; word-break: break-word; }
 <body>
 <main>
     <header>
-        <h1>Informe dbCheck</h1>
+        <h1>Informe SIMBA</h1>
         <p class="subtitle">Entorno: {{ env_name }} | Generado: {{ generated_at }}</p>
     </header>
 
-    <!-- RF001 - CPU -->
+    <!-- Apartado 1 -->
     <section class="card">
-        <h2>Resumen de CPU</h2>
-        <div class="kpi-grid">
-            <div>
-                <p class="kpi-title">CPU Host (%)</p>
-                <p class="kpi-value">{{ cpu_pct }}</p>
+        <h2>Apartado 1: Métricas de rendimiento</h2>
+
+        <div class="subcard">
+            <h3>RF001 - Porcentaje de CPU</h3>
+            <div class="kpi-grid">
+                <div>
+                    <p class="kpi-title">CPU Host (%)</p>
+                    <p class="kpi-value">{{ cpu_pct }}</p>
+                </div>
+                <div>
+                    <p class="kpi-title">Estado</p>
+                    <p><span class="badge {{ cpu_status }}">{{ cpu_label }}</span></p>
+                </div>
             </div>
-            <div>
-                <p class="kpi-title">Estado</p>
-                <p><span class="badge {{ cpu_status }}">{{ cpu_label }}</span></p>
-            </div>
+        </div>
+
+        <div class="subcard">
+            <h3>RF008 - Métricas</h3>
+            {% if metrics %}
+            <table>
+                <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+                <tbody>
+                {% for r in metrics %}
+                    <tr><td>{{ r.METRIC_NAME }}</td><td>{{ r.VALUE }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">Sin métricas de rendimiento.</p>
+            {% endif %}
+        </div>
+
+        <div class="subcard">
+            <h3>RF008.1 - SGA</h3>
+            {% if sga_info %}
+            <table>
+                <thead><tr><th>Nombre</th><th>Bytes</th><th>Resizables</th></tr></thead>
+                <tbody>
+                {% for r in sga_info %}
+                    <tr><td>{{ r.NAME }}</td><td>{{ r.BYTES }}</td><td>{{ r.RESIZEABLE }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">Sin información SGA.</p>
+            {% endif %}
+        </div>
+
+        <div class="subcard">
+            <h3>RF015 - Latencia/Waits</h3>
+            {% if latency_wait_metrics %}
+            <table>
+                <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+                <tbody>
+                {% for r in latency_wait_metrics %}
+                    <tr><td>{{ r.METRIC_NAME }}</td><td>{{ r.VALUE }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">Sin métricas de latencia/waits.</p>
+            {% endif %}
         </div>
     </section>
 
-    <!-- RF002 - Top queries por CPU -->
+    <!-- Apartado 2 -->
     <section class="card">
-        <h2>Top SQL por CPU</h2>
-        {% if top_queries %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Usuario</th><th>Ejecuciones</th><th>% CPU</th><th>CPU Time</th><th>SQL</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in top_queries %}
-                <tr>
-                    <td>{{ r.USUARIO }}</td>
-                    <td>{{ r.EJECUCIONES }}</td>
-                    <td>{{ r.PCT_CPU }}</td>
-                    <td>{{ r.CPU_TIME }}</td>
-                    <td class="sql">{{ r.SQL }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty">Sin datos.</p>
-        {% endif %}
-    </section>
-
-    <!-- RF003 - Top sesiones por CPU -->
-    <section class="card">
-        <h2>Top Sesiones por CPU</h2>
-        {% if top_sessions %}
-        <table>
-            <thead>
-                <tr><th>SID</th><th>SERIAL#</th><th>Usuario</th><th>CPU (cs)</th><th>% CPU</th></tr>
-            </thead>
-            <tbody>
-                {% for r in top_sessions %}
-                <tr>
-                    <td>{{ r.SID }}</td><td>{{ r.SERIAL }}</td><td>{{ r.USUARIO }}</td>
-                    <td>{{ r.CPU_CS }}</td><td>{{ r.PCT_CPU }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty">Sin datos.</p>
-        {% endif %}
-    </section>
-
-    <!-- RF004 - Usuarios con más sesiones inactivas -->
-    <section class="card">
-        <h2>Usuarios con más Sesiones Inactivas (&gt;30 min)</h2>
-        {% if users_inactive %}
-        <table>
-            <thead>
-                <tr><th>Usuario</th><th>Sesiones Inactivas</th><th>% CPU</th></tr>
-            </thead>
-            <tbody>
-                {% for r in users_inactive %}
-                <tr>
-                    <td>{{ r.USUARIO }}</td>
-                    <td>{{ r.SESIONES_INACTIVAS }}</td>
-                    <td>{{ r.PCT_CPU }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty">Sin sesiones inactivas superiores a 30 minutos.</p>
-        {% endif %}
-    </section>
-
-    <!-- RF004.1 - Detalle sesiones inactivas -->
-    <section class="card">
-        <h2>Detalle de Sesiones Inactivas / Huérfanas (&gt;30 min)</h2>
-        {% if inactive_sessions %}
-        <table>
-            <thead>
-                <tr>
-                    <th>SID</th><th>SERIAL#</th><th>Usuario</th><th>Idle (min)</th>
-                    <th>% CPU</th><th>Mem (MB)</th><th>Máquina</th><th>Logon Time</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in inactive_sessions %}
-                <tr>
-                    <td>{{ r.SID }}</td><td>{{ r.SERIAL }}</td><td>{{ r.USUARIO }}</td>
-                    <td>{{ r.IDLE_MIN }}</td><td>{{ r.PCT_CPU }}</td>
-                    <td>{{ r.MEM_MB }}</td><td>{{ r.MACHINE }}</td><td>{{ r.LOGON_TIME }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty">Sin sesiones inactivas superiores a 30 minutos.</p>
-        {% endif %}
-    </section>
-
-    <!-- RF004.2 / RF005.2 / RF005.3 - Totales -->
-    <section class="card">
-        <h2>Totales de Control</h2>
+        <h2>Apartado 2: Control total</h2>
         <div class="kpi-grid">
             <div>
-                <p class="kpi-title">Total Sesiones Inactivas (&gt;30 min)</p>
+                <p class="kpi-title">RF020 - Total Sesiones</p>
+                <p class="kpi-value">{{ total_sessions }}</p>
+            </div>
+            <div>
+                <p class="kpi-title">RF009.2 - Total Sesiones Activas</p>
+                <p class="kpi-value">{{ total_active_sessions }}</p>
+            </div>
+            <div>
+                <p class="kpi-title">RF004.2 - Total Inactivas (&gt;30 min)</p>
                 <p class="kpi-value">{{ total_inactive_sessions }}</p>
             </div>
             <div>
-                <p class="kpi-title">Total SQL Bloqueantes</p>
+                <p class="kpi-title">RF005.2 - Total SQL Bloqueantes</p>
                 <p class="kpi-value">{{ total_blocking_sql }}</p>
             </div>
             <div>
-                <p class="kpi-title">Total Sesiones Bloqueadas</p>
+                <p class="kpi-title">RF005.3 - Total Sesiones Bloqueadas</p>
                 <p class="kpi-value">{{ total_blocked_sessions }}</p>
             </div>
         </div>
     </section>
 
-    <!-- RF005 - Sesiones bloqueantes -->
+    <!-- Apartado 3 -->
     <section class="card">
-        <h2>Sesiones Bloqueantes</h2>
-        {% if blocking %}
+        <h2>Apartado 3: Sesiones activas e inactivas</h2>
+
+        <div class="subcard">
+        <h3>RF009 - Usuarios con más Sesiones Activas</h3>
+        {% if users_active %}
         <table>
-            <thead>
-                <tr><th>SID</th><th>SERIAL#</th><th>Usuario</th><th>Máquina</th></tr>
-            </thead>
+            <thead><tr><th>Usuario</th><th>Sesiones Activas</th><th>% CPU</th></tr></thead>
             <tbody>
-                {% for r in blocking %}
-                <tr>
-                    <td>{{ r.SID }}</td><td>{{ r.SERIAL }}</td>
-                    <td>{{ r.USUARIO }}</td><td>{{ r.MACHINE }}</td>
-                </tr>
-                {% endfor %}
+            {% for r in users_active %}
+                <tr><td>{{ r.USUARIO }}</td><td>{{ r.SESIONES_ACTIVAS }}</td><td>{{ r.PCT_CPU }}</td></tr>
+            {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <p class="empty">No hay sesiones bloqueantes en este momento.</p>
+        <p class="empty">Sin sesiones activas.</p>
         {% endif %}
+        </div>
+
+        <div class="subcard">
+        <h3>RF004 - Usuarios con más Sesiones Inactivas</h3>
+        {% if users_inactive %}
+        <table>
+            <thead><tr><th>Usuario</th><th>Sesiones Inactivas</th><th>% CPU</th></tr></thead>
+            <tbody>
+            {% for r in users_inactive %}
+                <tr><td>{{ r.USUARIO }}</td><td>{{ r.SESIONES_INACTIVAS }}</td><td>{{ r.PCT_CPU }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin sesiones inactivas.</p>
+        {% endif %}
+        </div>
     </section>
 
-    <!-- RF005.1 - SQL sesiones bloqueantes -->
+    <!-- Apartado 4 -->
     <section class="card">
-        <h2>SQL de Sesiones Bloqueantes</h2>
+        <h2>Apartado 4: Sesiones, tablas y SQL bloqueadas</h2>
+
+        <div class="subcard">
+        <h3>RF005 - Sesiones Bloqueantes</h3>
+        {% if blocking %}
+        <table>
+            <thead><tr><th>SID</th><th>SERIAL#</th><th>Usuario</th><th>Máquina</th></tr></thead>
+            <tbody>
+            {% for r in blocking %}
+                <tr>
+                    <td>{{ r.SID }}</td><td>{{ r.SERIAL }}</td><td>{{ r.USUARIO }}</td><td>{{ r.MACHINE }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">No hay sesiones bloqueantes.</p>
+        {% endif %}
+        </div>
+
+        <div class="subcard">
+        <h3>RF005.1 - SQL de Sesiones Bloqueantes</h3>
         {% if blocking_sql %}
         <table>
             <thead>
                 <tr>
-                    <th>Blocker SID</th><th>Usuario</th><th>Sesiones Bloqueadas</th>
-                    <th>SQL ID</th><th>SQL</th>
+                    <th>Blocker SID</th><th>Usuario</th><th>Sesiones Bloqueadas</th><th>SQL ID</th><th>SQL</th>
                 </tr>
             </thead>
             <tbody>
-                {% for r in blocking_sql %}
+            {% for r in blocking_sql %}
                 <tr>
-                    <td>{{ r.BLOCKER_SID }}</td><td>{{ r.USUARIO }}</td>
-                    <td>{{ r.SESIONES_BLOQUEADAS }}</td><td>{{ r.SQL_ID }}</td>
-                    <td class="sql">{{ r.SQL }}</td>
+                    <td>{{ r.BLOCKER_SID }}</td><td>{{ r.USUARIO }}</td><td>{{ r.SESIONES_BLOQUEADAS }}</td><td>{{ r.SQL_ID }}</td><td class="sql">{{ r.SQL }}</td>
                 </tr>
-                {% endfor %}
+            {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <p class="empty">No hay SQLs de sesiones bloqueantes en este momento.</p>
+        <p class="empty">No hay SQL bloqueantes.</p>
         {% endif %}
+        </div>
+
+        <div class="subcard">
+        <h3>RF017 - Bloqueos entre Tablas</h3>
+        {% if table_lock_detection %}
+        <table>
+            <thead><tr><th>Holder</th><th>Recurso</th><th>LType</th><th>LMode</th><th>Waiter</th><th>SQL Waiter</th></tr></thead>
+            <tbody>
+            {% for r in table_lock_detection %}
+                <tr>
+                    <td class="sql">{{ r.HOLDER }}</td><td class="sql">{{ r.RISORSA_ID }}</td><td>{{ r.LTYPE }}</td><td>{{ r.LMODE }}</td><td class="sql">{{ r.WAITER }}</td><td class="sql">{{ r.SQL_OF_WAITER }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin bloqueos detectados.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <!-- Apartado 5: cada requerimiento en su propio DIV -->
+    <section class="card">
+        <h2>Apartado 5 - Información adicional</h2>
+        <div class="subcard">
+        <h3>RF011 - Sesiones por Programa y Máquina</h3>
+        {% if sessions_by_program_machine %}
+        <table>
+            <thead><tr><th>Programa</th><th>Máquina</th><th>Sesiones</th></tr></thead>
+            <tbody>
+            {% for r in sessions_by_program_machine %}
+                <tr><td>{{ r.PROGRAM }}</td><td>{{ r.MACHINE }}</td><td>{{ r.SESIONES }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin datos por programa/máquina.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="subcard">
+        <h3>RF012 - Sesiones por Usuario</h3>
+        {% if sessions_by_user %}
+        <table>
+            <thead><tr><th>Usuario</th><th>Estado</th><th>Sesiones</th></tr></thead>
+            <tbody>
+            {% for r in sessions_by_user %}
+                <tr><td>{{ r.USERNAME }}</td><td>{{ r.STATUS }}</td><td>{{ r.SESIONES }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin datos por usuario.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="subcard">
+        <h3>RF013 - Sesiones por Módulo</h3>
+        {% if sessions_by_module %}
+        <table>
+            <thead><tr><th>Módulo</th><th>Sesiones</th></tr></thead>
+            <tbody>
+            {% for r in sessions_by_module %}
+                <tr><td>{{ r.MODULE }}</td><td>{{ r.SESIONES }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin datos por módulo.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="subcard">
+        <h3>RF014 - Pooling (&gt;20)</h3>
+        {% if pooling %}
+        <table>
+            <thead><tr><th>Programa</th><th>Máquina</th><th>Usuario</th><th>Sesiones</th></tr></thead>
+            <tbody>
+            {% for r in pooling %}
+                <tr><td>{{ r.PROGRAM }}</td><td>{{ r.MACHINE }}</td><td>{{ r.USERNAME }}</td><td>{{ r.SESIONES }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin patrones de pooling detectados.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="subcard">
+        <h3>RF016 - Top Tamaño de Tablas</h3>
+        {% if top_table_sizes %}
+        <table>
+            <thead><tr><th>Owner</th><th>Tabla</th><th>Tamaño MB</th><th>Tamaño GB</th></tr></thead>
+            <tbody>
+            {% for r in top_table_sizes %}
+                <tr><td>{{ r.OWNER }}</td><td>{{ r.TABLA }}</td><td>{{ r.TAMANIO_MB }}</td><td>{{ r.TAMANIO_GB }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin datos de tamaño de tablas.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="subcard">
+        <h3>RF018 - Métricas Sesiones/Usuarios (sysmetric)</h3>
+        {% if session_user_metrics %}
+        <table>
+            <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+            <tbody>
+            {% for r in session_user_metrics %}
+                <tr><td>{{ r.METRIC_NAME }}</td><td>{{ r.VALUE }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin métricas de sesiones/usuarios.</p>
+        {% endif %}
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="subcard">
+        <h3>RF019 - Sesiones por Usuario y Estado</h3>
+        {% if sessions_by_user_status %}
+        <table>
+            <thead><tr><th>Usuario Oracle</th><th>Estado</th><th>Número Sesiones</th></tr></thead>
+            <tbody>
+            {% for r in sessions_by_user_status %}
+                <tr><td>{{ r.USUARIO_ORACLE }}</td><td>{{ r.STATUS }}</td><td>{{ r.NUMERO_SESIONES }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Sin datos de sesiones por usuario/estado.</p>
+        {% endif %}
+        </div>
     </section>
 
 </main>

@@ -1,0 +1,201 @@
+-- RESUMEN (RF007)
+
+SELECT
+    metric_name,
+    ROUND(value, 2) AS value
+FROM v$sysmetric
+WHERE metric_name IN (
+    'Host CPU Utilization (%)',
+    'Database CPU Time Ratio (%)',
+    'Average Active Sessions', -- número medio de sesiones “activas” (en CPU o esperando) durante el intervalo.
+    'Current Logons Count',    -- número de sesiones conectadas en ese momento (logons), no necesariamente activas.
+    'PGA Cache Hit %',
+    'Physical Reads Per Sec',
+    'Physical Writes Per Sec'
+)
+ORDER BY metric_name;
+
+-- METRICAS (RF008)
+
+SELECT
+    metric_name,
+    ROUND(value, 2) AS value
+FROM v$sysmetric
+WHERE metric_name LIKE '%SGA%';
+
+-- SGA (RF008.1)
+
+SELECT * FROM v$sgainfo;
+
+---------------------------------------------------------------------------
+
+-- SESIONES (RF018)
+
+SELECT
+    metric_name,
+    ROUND(value, 2) AS value
+FROM v$sysmetric
+WHERE metric_name LIKE '%Session%'
+    OR metric_name LIKE '%User%';
+
+-- SESIONES INACTIVAS y ACTIVAS (RF019)
+
+SELECT
+    username AS Usuario_Oracle,
+    status,
+    COUNT(*) AS Numero_Sesiones
+FROM v$session
+GROUP BY username, status
+ORDER BY username, status;
+
+-- SESIONES INACTIVAS y ACTIVAS (RF020)
+
+SELECT COUNT(*) AS Numero_Sesiones
+FROM v$session;
+
+-- SQL ID (RF010)
+
+SELECT
+    s.sql_id,
+    s.sid,
+    s.serial#,
+    s.username,
+    s.status,
+    s.last_call_et,
+    s.sql_exec_start,
+    s.seconds_in_wait,
+    q.sql_text,
+    s.*
+FROM
+    v$session s
+    JOIN v$sql q ON s.sql_id = q.sql_id
+ORDER BY
+    s.sql_exec_start;
+
+-- SESIONES POR PROGRAMA Y MÁQUINAS (RF011)
+
+SELECT
+    program,
+    machine,
+    COUNT(*) AS sesiones
+FROM v$session
+WHERE type = 'USER'
+GROUP BY program, machine
+ORDER BY sesiones DESC;
+
+-- SESIONES POR USUARIO (RF012)
+
+SELECT
+    username,
+    status,
+    COUNT(*) AS sesiones
+FROM v$session
+WHERE type = 'USER'
+GROUP BY username, status
+ORDER BY sesiones DESC;
+
+-- SESIONES POR MÓDULO (RF013)
+
+SELECT
+    module,
+    COUNT(*) AS sesiones
+FROM v$session
+WHERE module IS NOT NULL
+GROUP BY module
+ORDER BY sesiones DESC;
+
+-- POOLING (RF014)
+
+SELECT
+    program,
+    machine,
+    username,
+    COUNT(*) AS sesiones
+FROM v$session
+WHERE type = 'USER'
+GROUP BY program, machine, username
+HAVING COUNT(*) > 20
+ORDER BY sesiones DESC;
+
+---------------------------------------------------------------------------
+
+-- LATENCIA/WAITS (RF015)
+
+SELECT
+    metric_name,
+    ROUND(value, 2) AS value
+FROM v$sysmetric
+WHERE metric_name LIKE '%Wait%'
+    OR metric_name LIKE '%Latency%';
+
+---------------------------------------------------------------------------
+
+-- TAMAÑO TABLAS (RF016)
+
+SELECT
+    owner,
+    segment_name AS tabla,
+    ROUND(SUM(bytes) / 1024 / 1024, 2)   AS tamanio_mb,
+    ROUND(SUM(bytes) / 1024 / 1024 / 1024, 4) AS tamanio_gb
+FROM dba_segments
+WHERE segment_type = 'TABLE'
+    AND owner = 'ENET'
+GROUP BY owner, segment_name
+ORDER BY tamanio_mb DESC
+FETCH FIRST 20 ROWS ONLY;
+
+---------------------------------------------------------------------------
+
+-- BLOQUEOS ENTRE TABLAS (RF017)
+
+SELECT /*+ LEADING(lh) */
+    'USERNAME==' || sh.username || '
+SID,SER=' || sh.sid || ',' || sh.serial# || '
+OSUSER=' || sh.osuser || '
+PROG=' || sh.program AS "Holder",
+    DECODE(
+        o.owner || '-',
+        '-', '*******',
+        o.owner || '.' || o.object_name || '
+' || o.subobject_name || '(' || o.object_id || ')'
+    ) AS "Risorsa(Id)",
+    lh.type AS "LType",
+    DECODE(
+        lh.lmode,
+        1, 'null',
+        2, 'RwShare',
+        3, 'RwExcl',
+        4, 'Share',
+        5, 'ShRwExcl',
+        6, 'Excl',
+        lh.lmode
+    ) AS "LMode",
+    'USERNAME=' || sw.username || '
+SID,SER=' || sw.sid || ',' || sw.serial# || '
+OSUSER=' || sw.osuser || '
+PROG=' || sw.program AS "Waiter",
+    SUBSTR(swa.sql_text, 1, 185) AS "Sql of Waiter"
+FROM
+    v$sqlarea swa,
+    v$session sw,
+    v$lock lw,
+    dba_objects o,
+    v$session sh,
+    v$lock lh
+WHERE
+    lh.request = 0
+    AND lh.sid = sh.sid
+    AND lh.id1 = lw.id1
+    AND (lw.request != 0 OR lw.request IS NULL)
+    AND lw.sid = sw.sid
+    AND sw.lockwait IS NOT NULL
+    AND sw.row_wait_obj# = o.object_id (+)
+    AND sw.sql_hash_value = swa.hash_value
+    AND sw.sql_address = swa.address
+ORDER BY
+    "Holder",
+    "Risorsa(Id)",
+    "LType",
+    "LMode",
+    "Waiter";
+ 
