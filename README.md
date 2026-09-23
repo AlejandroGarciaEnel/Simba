@@ -88,7 +88,6 @@ http://127.0.0.1:8000
 ## 5) Carpetas de salida
 
 - Informes RF006: `reports/`
-- Informes RF021 (AWR): `awr/`
 
 ## 6) Comandos rapidos
 
@@ -116,6 +115,4 @@ Web:
 	- revisa que `ORACLE_CLIENT_DIR` apunte a un Instant Client 64-bit valido.
 - Error de conexion a BD:
 	- valida `DB_HOST`, `DB_PORT`, `DB_SERVICE`, `DB_USER`, `DB_PASSWORD`.
-- Error de AWR (`DBMS_WORKLOAD_REPOSITORY`):
-	- el usuario de BD necesita permisos para ejecutar ese paquete.
 

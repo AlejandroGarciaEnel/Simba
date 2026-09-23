@@ -5,6 +5,8 @@ Todas las herramientas aceptan un parámetro opcional 'limit' (por defecto 5).
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from tabulate import tabulate
 
 from langchain_core.tools import tool
@@ -539,13 +541,14 @@ def get_total_sessions(_: str = "") -> str:
 @tool
 def generate_report(_: str = "") -> str:
     """
-    Genera un informe completo en formato HTML con toda la información de rendimiento
-    de la base de datos: CPU, top queries, sesiones, bloqueos, etc.
-    Guarda el fichero en el directorio actual y devuelve la ruta.
+    Genera un informe HTML de monitorización según la plantilla funcional.
+    Guarda el fichero en la carpeta reports y devuelve el nombre del archivo generado.
     """
     from report.generator import generate
+
     path = generate()
-    return f"Informe generado correctamente: {path}"
+    filename = Path(path).name
+    return f"Informe generado correctamente. Archivo: {filename}"
 
 
 ALL_TOOLS = [

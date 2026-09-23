@@ -3,6 +3,7 @@ Adaptador que traduce mensajes del usuario a llamadas del agente LangChain.
 Formatea respuestas para la API REST.
 """
 import sys
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple, Any
 import json
@@ -121,15 +122,14 @@ class ChatHandler:
                 "role": "assistant",
                 "content": assistant_message
             })
-            
-            # Detectar si es solicitud de informe
-            is_report_request = self._is_report_request(user_message)
-            
+
+            report_filename = self._extract_generated_filename(assistant_message, "dbCheck")            
             return {
                 "success": True,
                 "message": assistant_message,
                 "error": False,
-                "is_report": is_report_request,
+                "is_report": bool(report_filename),
+                "report": {"success": True, "filename": report_filename} if report_filename else None,
                 "can_retry": False
             }
             
@@ -153,27 +153,12 @@ class ChatHandler:
                 "can_retry": False
             }
     
-    def _is_report_request(self, user_msg: str) -> bool:
-        """
-        Detecta si la solicitud es para generar un informe.
-        Solo dispara con frases explícitas para evitar falsos positivos.
-        """
-        normalized = " ".join((user_msg or "").strip().lower().split())
-        allowed_exact_requests = {
-            "genera un informe",
-            "genera un informe html",
-            "genera un informe completo",
-            "genera un informe completo en html",
-            "generar informe",
-            "generar informe html",
-            "generar informe completo",
-            "generar informe completo en html",
-            "crear informe",
-            "crear informe html",
-            "crear informe completo",
-            "crear informe completo en html",
-        }
-        return normalized in allowed_exact_requests
+    def _extract_generated_filename(self, message: str, prefix: str) -> str | None:
+        pattern = rf"\b{re.escape(prefix)}[^\s]*\.html\b"
+        match = re.search(pattern, message or "")
+        if not match:
+            return None
+        return Path(match.group(0)).name
     
     def generate_report(self) -> Tuple[bool, str, str]:
         """

@@ -5,12 +5,45 @@ Recoge datos de todas las queries y renderiza el informe HTML con Jinja2.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
 import db.queries as q
+
+
+REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
+
+def _build_report_filename(now: datetime) -> str:
+    """Genera un nombre de fichero compatible con Windows para RF006."""
+    return f"dbCheck_{now.strftime('%d-%m-%Y_%H-%M')}.html"
+
+
+def _ensure_output_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _write_html_artifact(directory: Path, filename: str, html: str) -> Path:
+    output_dir = _ensure_output_dir(directory)
+    output_path = output_dir / filename
+    output_path.write_text(html, encoding="utf-8")
+    return output_path
+
+def _format_timestamp(value: Any) -> str:
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value)
+
+
+def _extract_text_excerpt(html: str, max_lines: int = 3) -> list[str]:
+    stripped = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", html, flags=re.IGNORECASE | re.DOTALL)
+    stripped = re.sub(r"<[^>]+>", " ", stripped)
+    candidates = [" ".join(line.split()) for line in stripped.splitlines()]
+    return [line for line in candidates if line and len(line) > 24][:max_lines]
 
 
 def generate() -> str:
@@ -97,8 +130,6 @@ def generate() -> str:
         sessions_by_user_status=sessions_by_user_status,
     )
 
-    year_three = now.strftime("%Y")[1:]
-    filename = f"dbCheck_{now.strftime('%d-%m')}-{year_three}_{now.strftime('%H-%M')}.html"
-    output_path = Path.cwd() / filename
-    output_path.write_text(html, encoding="utf-8")
+    filename = _build_report_filename(now)
+    output_path = _write_html_artifact(REPORTS_DIR, filename, html)
     return str(output_path)

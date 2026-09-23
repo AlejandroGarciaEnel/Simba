@@ -38,6 +38,7 @@ app.add_middleware(
 BACKEND_DIR = Path(__file__).parent
 FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 PROJECT_ROOT = BACKEND_DIR.parent.parent
+REPORTS_DIR = PROJECT_ROOT / "reports"
 
 # Handler global
 chat_handler = ChatHandler()
@@ -104,20 +105,6 @@ async def chat(payload: ChatMessage):
         # Procesar mensaje
         result = chat_handler.process_message(payload.message)
         
-        # Si es solicitud de informe, generarlo
-        if result.get("is_report"):
-            success, filename, output_path = chat_handler.generate_report()
-            if success:
-                result["report"] = {
-                    "success": True,
-                    "filename": filename
-                }
-            else:
-                result["report"] = {
-                    "success": False,
-                    "error": filename
-                }
-        
         return result
         
     except Exception as e:
@@ -153,7 +140,7 @@ async def download_report(filename: str):
         if not is_valid_prefix or not filename.endswith(".html"):
             raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
         
-        file_path = PROJECT_ROOT / filename
+        file_path = REPORTS_DIR / filename
         
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Archivo no encontrado.")
@@ -169,7 +156,6 @@ async def download_report(filename: str):
     except Exception as e:
         logger.error(f"Error descargando informe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/chat-history")
 async def get_chat_history():

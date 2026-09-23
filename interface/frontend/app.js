@@ -122,7 +122,6 @@ async function sendMessage() {
 
             // Verificar si es solicitud de informe
             if (data.is_report && data.report && data.report.success) {
-                // Descargar automáticamente el informe
                 downloadReport(data.report.filename);
                 showNotification("✅ Informe generado y descargado automáticamente");
             }

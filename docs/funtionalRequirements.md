@@ -79,7 +79,7 @@
 # RF006 - Generación de informe
 
 - Descripcion: Genera un informe en formato HTML con toda la información recogida en los puntos anteriores
-- Salida: Informe HTML con los requerimientos aportados en el apartado 6 de este documento
+- Salida: Informe HTML con los requerimientos aportados en el apartado 6 de este documento, se guardara bajo la carpeta ./reports
 
 # RF007 - Resumen general de la BBDD
 
