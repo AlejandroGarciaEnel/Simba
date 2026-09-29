@@ -89,7 +89,18 @@ http://127.0.0.1:8000
 
 - Informes RF006: `reports/`
 
-## 6) Comandos rapidos
+## 6) Pruebas automatizadas (pytest)
+
+Los tests no requieren Oracle Instant Client ni una BD real: `conftest.py` en la raíz inyecta un `cx_Oracle` simulado, y cada capa (queries, tools, informe HTML, API) mockea sus dependencias externas (cursor Oracle, agente LangChain).
+
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Estructura: `tests/unit` (queries y tools), `tests/report` (generador HTML), `tests/api` (endpoints FastAPI). Los tests marcados `integration` (contra Oracle real) se excluyen por defecto.
+
+## 7) Comandos rapidos
 
 Instalar todo:
 
@@ -109,7 +120,7 @@ Web:
 .\.venv\Scripts\Activate.ps1; python -m uvicorn interface.backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-## 7) Problemas comunes
+## 8) Problemas comunes
 
 - Error `DPI-1047`:
 	- revisa que `ORACLE_CLIENT_DIR` apunte a un Instant Client 64-bit valido.
