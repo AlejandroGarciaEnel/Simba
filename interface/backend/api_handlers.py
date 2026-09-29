@@ -105,44 +105,60 @@ class ChatHandler:
         self.sessions = SessionStore()
         self.db_connected = False
         self.connection_error = None
-    
+        self.llm_ready = False
+        self.llm_error = None
+
+    def _connect_database(self, max_retries: int = 3) -> Tuple[bool, str]:
+        """Gestiona solo la conexión Oracle con reintentos. No toca el estado del LLM."""
+        for attempt in range(max_retries):
+            try:
+                get_connection()
+                self.db_connected = True
+                self.connection_error = None
+                return True, "Conexión con la base de datos establecida correctamente."
+            except Exception as e:
+                self.connection_error = str(e)
+                if attempt < max_retries - 1:
+                    continue
+        self.db_connected = False
+        return False, (
+            f"No se pudo establecer conexión con la base de datos después de {max_retries} intentos."
+        )
+
+    def _build_llm_agent(self) -> Tuple[bool, str]:
+        """Gestiona solo la construcción del agente LLM. No toca el estado de la BD."""
+        try:
+            self.executor = build_agent()
+            self.llm_ready = True
+            self.llm_error = None
+            return True, "Agente LLM inicializado correctamente."
+        except Exception as e:
+            self.executor = None
+            self.llm_ready = False
+            self.llm_error = str(e)
+            return False, f"Error al inicializar el agente LLM: {e}"
+
     def initialize_agent(self, max_retries: int = 3) -> Tuple[bool, str]:
         """
-        Inicializa el agente y verifica conexión a BD.
+        Inicializa BD y agente LLM como pasos independientes: un fallo del LLM
+        no debe pisar el estado (ya correcto) de la conexión a BD, y viceversa.
         
         Args:
-            max_retries: Número máximo de intentos de conexión
+            max_retries: Número máximo de intentos de conexión a BD
             
         Returns:
             (éxito: bool, mensaje: str)
         """
-        try:
-            # Intentar conexión a BD
-            for attempt in range(max_retries):
-                try:
-                    get_connection()
-                    self.db_connected = True
-                    self.connection_error = None
-                    break
-                except Exception as e:
-                    self.connection_error = str(e)
-                    if attempt < max_retries - 1:
-                        continue
-                    else:
-                        raise
-            
-            if not self.db_connected:
-                return False, "No se pudo establecer conexión con la base de datos después de 3 intentos."
-            
-            # Construir agente
-            self.executor = build_agent()
-            return True, "Conexión establecida correctamente. ¿Qué deseas saber de la base de datos?"
-            
-        except Exception as e:
-            self.db_connected = False
-            self.connection_error = str(e)
-            return False, f"Error al inicializar el sistema: {str(e)}"
-    
+        db_ok, db_message = self._connect_database(max_retries)
+        if not db_ok:
+            return False, db_message
+
+        llm_ok, llm_message = self._build_llm_agent()
+        if not llm_ok:
+            return False, f"Base de datos conectada, pero {llm_message}"
+
+        return True, "Conexión establecida correctamente. ¿Qué deseas saber de la base de datos?"
+
     def _extract_answer(self, result: Dict[str, Any]) -> str:
         """
         Extrae la respuesta del asistente desde la salida del agente.
@@ -265,6 +281,14 @@ class ChatHandler:
     
     def reset_connection(self) -> Tuple[bool, str]:
         """
-        Intenta resetear la conexión con la BD.
+        Reintenta solo el/los componente(s) que estén fallando: si la BD ya está
+        conectada, no la reintenta y solo reconstruye el agente LLM (y viceversa).
         """
-        return self.initialize_agent(max_retries=3)
+        if not self.db_connected:
+            return self.initialize_agent(max_retries=3)
+        if not self.llm_ready:
+            llm_ok, llm_message = self._build_llm_agent()
+            if not llm_ok:
+                return False, llm_message
+            return True, "Conexión establecida correctamente. ¿Qué deseas saber de la base de datos?"
+        return True, "El sistema ya está operativo."

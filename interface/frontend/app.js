@@ -322,26 +322,29 @@ async function checkHealth() {
         const response = await fetch(`${API_BASE}/health`);
         if (response.ok) {
             const data = await response.json();
-            updateConnectionStatus(data.db_connected);
+            updateConnectionStatus(data);
             return true;
         } else {
-            updateConnectionStatus(false);
+            updateConnectionStatus({ db_connected: false, llm_ready: false });
             return false;
         }
     } catch (error) {
         console.error("Health check error:", error);
-        updateConnectionStatus(false);
+        updateConnectionStatus({ db_connected: false, llm_ready: false });
         return false;
     }
 }
 
-function updateConnectionStatus(connected) {
+function updateConnectionStatus({ db_connected, llm_ready }) {
     const dot = document.getElementById("status-dot");
     const text = document.getElementById("status-text");
 
-    if (connected) {
+    if (db_connected && llm_ready) {
         dot.className = "status-dot connected";
-        text.textContent = "Base de datos conectada";
+        text.textContent = "Base de datos y agente conectados";
+    } else if (db_connected && !llm_ready) {
+        dot.className = "status-dot error";
+        text.textContent = "Base de datos conectada, agente no disponible";
     } else {
         dot.className = "status-dot error";
         text.textContent = "Base de datos desconectada";
@@ -363,7 +366,7 @@ async function retryConnection() {
         if (data.success) {
             hideErrorBanner();
             addMessageToUI("assistant", "✅ " + data.message);
-            updateConnectionStatus(data.db_connected);
+            updateConnectionStatus(data);
         } else {
             showErrorBanner(data.message, true);
             addMessageToUI("assistant", "❌ " + data.message);

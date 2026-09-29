@@ -2,6 +2,10 @@
 tests/api/test_main.py
 Pruebas de la API FastAPI (interface/backend/main.py) sin BD ni LLM reales.
 """
+from unittest.mock import MagicMock
+
+from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 
 
 def test_health_endpoint_reports_initialized_state(api_client):
@@ -98,3 +102,49 @@ def test_download_report_rejects_invalid_filename(api_client):
     response = api_client.get("/api/download-report/../secrets.txt")
 
     assert response.status_code in (400, 404)
+
+
+def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):
+    """Integración real (sin mockear initialize_agent): arranca con el LLM caído,
+    /api/chat debe dar 503 hasta que /api/reset-connection lo repare, y luego funcionar."""
+    from interface.backend import main as main_module
+    from interface.backend.api_handlers import SessionStore
+
+    monkeypatch.setattr(
+        "interface.backend.api_handlers.get_connection", lambda: MagicMock()
+    )
+
+    build_agent_calls = []
+
+    def fake_build_agent():
+        build_agent_calls.append(1)
+        if len(build_agent_calls) == 1:
+            raise RuntimeError("llm no disponible")
+        agent = MagicMock()
+        agent.invoke.return_value = {"messages": [AIMessage(content="respuesta ok")]}
+        return agent
+
+    monkeypatch.setattr("interface.backend.api_handlers.build_agent", fake_build_agent)
+    monkeypatch.setattr(main_module.chat_handler, "sessions", SessionStore())
+
+    with TestClient(main_module.app) as client:
+        # Arranque: BD ok, LLM caído -> /api/chat debe fallar con 503
+        assert main_module.chat_handler.db_connected is True
+        assert main_module.chat_handler.llm_ready is False
+
+        chat_response = client.post("/api/chat", json={"message": "hola"})
+        assert chat_response.status_code == 503
+        assert "agente (LLM)" in chat_response.json()["detail"]
+
+        # Reparar solo el LLM
+        reset_response = client.post("/api/reset-connection")
+        assert reset_response.status_code == 200
+        assert reset_response.json()["llm_ready"] is True
+
+        # Ahora /api/chat debe funcionar sin necesidad de reiniciar el servidor
+        chat_response = client.post("/api/chat", json={"message": "hola de nuevo"})
+        assert chat_response.status_code == 200
+        assert chat_response.json()["success"] is True
+
+        health_response = client.get("/api/health")
+        assert health_response.json()["message"] == "Servidor activo"

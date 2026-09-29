@@ -51,6 +51,7 @@ def api_client(monkeypatch):
             "messages": [AIMessage(content="respuesta simulada")]
         }
         self.db_connected = True
+        self.llm_ready = True
         return True, "Conexión establecida correctamente."
 
     monkeypatch.setattr(ChatHandler, "initialize_agent", fake_initialize_agent)

@@ -94,16 +94,22 @@ class ChatMessage(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     db_connected: bool
+    llm_ready: bool
+    db_error: str | None = None
+    llm_error: str | None = None
     message: str
 
 
 # Endpoints
 @app.get("/api/health", response_model=HealthResponse)
 async def health_check():
-    """Verifica el estado del servidor y la conexión BD."""
+    """Verifica el estado del servidor, la conexión a BD y el agente LLM por separado."""
     return {
         "status": "ok",
         "db_connected": chat_handler.db_connected,
+        "llm_ready": chat_handler.llm_ready,
+        "db_error": chat_handler.connection_error,
+        "llm_error": chat_handler.llm_error,
         "message": "Servidor activo" if initialization_done else "Inicializando..."
     }
 
@@ -114,11 +120,14 @@ async def chat(payload: ChatMessage, response: Response, x_session_id: str | Non
     Endpoint principal de chat.
     Recibe pregunta del usuario y retorna respuesta del agente.
     """
-    if not initialization_done or not chat_handler.executor:
-        raise HTTPException(
-            status_code=503,
-            detail="El sistema no está inicializado. Verifica la conexión con la BD."
-        )
+    if not chat_handler.db_connected or not chat_handler.llm_ready or not chat_handler.executor:
+        if chat_handler.db_connected and not chat_handler.llm_ready:
+            detail = f"La base de datos está conectada, pero el agente (LLM) no pudo inicializarse: {chat_handler.llm_error}"
+        elif not chat_handler.db_connected:
+            detail = f"No hay conexión con la base de datos: {chat_handler.connection_error}"
+        else:
+            detail = "El sistema no está inicializado."
+        raise HTTPException(status_code=503, detail=detail)
     
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
@@ -138,14 +147,18 @@ async def chat(payload: ChatMessage, response: Response, x_session_id: str | Non
 @app.post("/api/reset-connection")
 async def reset_connection():
     """
-    Intenta resetear la conexión con la BD (3 reintentos).
+    Reintenta solo el/los componente(s) (BD y/o LLM) que estén fallando.
     """
+    global initialization_done
     try:
         success, message = chat_handler.reset_connection()
+        if success:
+            initialization_done = True
         return {
             "success": success,
             "message": message,
-            "db_connected": chat_handler.db_connected
+            "db_connected": chat_handler.db_connected,
+            "llm_ready": chat_handler.llm_ready
         }
     except Exception as e:
         logger.error(f"Error resetando conexión: {str(e)}")
