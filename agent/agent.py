@@ -5,7 +5,6 @@ Configura el agente LangChain con GPT-4o y las herramientas del monitor.
 from __future__ import annotations
 
 import os
-import ssl
 
 import httpx
 from dotenv import load_dotenv
@@ -52,7 +51,7 @@ Puedes ejecutar las siguientes acciones:
 - Consultar métricas de sesiones/usuarios por sysmetric (RF018)
 - Consultar total de sesiones por usuario y estado (RF019)
 - Consultar el total de sesiones conectadas, incluyendo cuántas están activas y cuántas llevan inactivas más de 30 minutos (RF020)
-- Generar un informe HTML completo con toda la información anterior (RF006)
+- Generar un informe HTML completo con la estructura funcional definida para el monitor (RF006)
 
 Cuando el usuario no especifique cuántos resultados quiere, devuelve los 5 primeros por defecto.
 Cuando una operación requiera parámetros obligatorios (por ejemplo username o sql_id), solicítalos si no están presentes.
@@ -62,18 +61,30 @@ Si no puedes resolver una petición con las herramientas disponibles, indícalo 
 
 
 def build_agent():
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o")
-
-    # Entornos corporativos con proxy SSL autofirmado requieren deshabilitar
-    # la verificación de certificados. Controlado por SSL_VERIFY en .env.
     ssl_verify = os.environ.get("SSL_VERIFY", "true").lower() not in ("false", "0", "no")
     http_client = httpx.Client(verify=ssl_verify)
+
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+
+    if provider == "genaihub":
+        token = _get_genaihub_token(http_client)
+        model = _get_required_env("GENAIHUB_MODEL", "GENAI_MODEL_ID")
+        base_url = _get_required_env("GENAIHUB_BASE_URL", "GENAIHUB_AWS_BASE_URL_DEV")
+        api_key = token
+        extra_body = {"modelId": model}
+    else:
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        api_key = os.environ["OPENAI_API_KEY"]
+        extra_body = None
 
     llm = ChatOpenAI(
         model=model,
         temperature=0,
-        base_url=os.environ.get("OPENAI_BASE_URL"),
+        api_key=api_key,
+        base_url=base_url,
         http_client=http_client,
+        extra_body=extra_body,
     )
 
     return create_agent(
@@ -81,3 +92,39 @@ def build_agent():
         tools=ALL_TOOLS,
         system_prompt=SYSTEM_PROMPT,
     )
+
+
+def _get_required_env(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value.strip().strip('"')
+    joined_names = ", ".join(names)
+    raise RuntimeError(f"Falta configurar una de estas variables de entorno: {joined_names}")
+
+def _get_genaihub_token(http_client: httpx.Client) -> str:
+    tenant_id = _get_required_env("GENAIHUB_TENANT_ID")
+    token_url = os.environ.get(
+        "GENAIHUB_TOKEN_URL",
+        f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+    )
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": _get_required_env("GENAIHUB_CLIENT_ID"),
+        "client_secret": _get_required_env("GENAIHUB_CLIENT_SECRET"),
+    }
+    scope = os.environ.get("GENAIHUB_SCOPE")
+    if not scope and "/oauth2/v2.0/token" in token_url:
+        raise RuntimeError(
+            "GENAIHUB_SCOPE es obligatorio para el endpoint OAuth v2.0 de GenAI Hub. "
+            "Solicita al equipo de GenAI Hub el scope o audience correcto."
+        )
+    if scope:
+        data["scope"] = scope
+
+    response = http_client.post(
+        token_url,
+        data=data,
+    )
+    response.raise_for_status()
+    return response.json()["access_token"]

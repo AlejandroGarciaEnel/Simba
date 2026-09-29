@@ -17,3 +17,6 @@ env/
 # IDEs
 .vscode/
 .idea/
+
+# Copilot Starter Kit
+.github/

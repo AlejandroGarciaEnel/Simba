@@ -2,6 +2,7 @@
 Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
+import os
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,8 +12,11 @@ from pathlib import Path
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
+from dotenv import load_dotenv
 
 from .api_handlers import ChatHandler
+
+load_dotenv()  # permite definir SIMBA_* en .env, igual que db/connection.py
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -25,10 +29,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
+def _get_cors_origins() -> List[str]:
+    # riesgo aceptado: "*" solo mientras el uso sea local (ver docs/funtionalRequirements.md)
+    raw = os.environ.get("SIMBA_CORS_ALLOWED_ORIGINS", "*").strip()
+    if raw == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,6 +50,7 @@ app.add_middleware(
 BACKEND_DIR = Path(__file__).parent
 FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 PROJECT_ROOT = BACKEND_DIR.parent.parent
+REPORTS_DIR = PROJECT_ROOT / "reports"
 
 # Handler global
 chat_handler = ChatHandler()
@@ -104,20 +117,6 @@ async def chat(payload: ChatMessage):
         # Procesar mensaje
         result = chat_handler.process_message(payload.message)
         
-        # Si es solicitud de informe, generarlo
-        if result.get("is_report"):
-            success, filename, output_path = chat_handler.generate_report()
-            if success:
-                result["report"] = {
-                    "success": True,
-                    "filename": filename
-                }
-            else:
-                result["report"] = {
-                    "success": False,
-                    "error": filename
-                }
-        
         return result
         
     except Exception as e:
@@ -153,7 +152,7 @@ async def download_report(filename: str):
         if not is_valid_prefix or not filename.endswith(".html"):
             raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
         
-        file_path = PROJECT_ROOT / filename
+        file_path = REPORTS_DIR / filename
         
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Archivo no encontrado.")
@@ -169,7 +168,6 @@ async def download_report(filename: str):
     except Exception as e:
         logger.error(f"Error descargando informe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/chat-history")
 async def get_chat_history():
@@ -208,8 +206,8 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app,
-        host="127.0.0.1",
-        port=8000,
+        host=os.environ.get("SIMBA_HOST", "127.0.0.1"),
+        port=int(os.environ.get("SIMBA_PORT", "8000")),
         reload=True,
         log_level="info"
     )
