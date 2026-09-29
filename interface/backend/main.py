@@ -2,6 +2,7 @@
 Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
+import os
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,8 +12,11 @@ from pathlib import Path
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
+from dotenv import load_dotenv
 
 from .api_handlers import ChatHandler
+
+load_dotenv()  # permite definir SIMBA_* en .env, igual que db/connection.py
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -25,10 +29,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
+def _get_cors_origins() -> List[str]:
+    # riesgo aceptado: "*" solo mientras el uso sea local (ver docs/funtionalRequirements.md)
+    raw = os.environ.get("SIMBA_CORS_ALLOWED_ORIGINS", "*").strip()
+    if raw == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -194,8 +206,8 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app,
-        host="127.0.0.1",
-        port=8000,
+        host=os.environ.get("SIMBA_HOST", "127.0.0.1"),
+        port=int(os.environ.get("SIMBA_PORT", "8000")),
         reload=True,
         log_level="info"
     )

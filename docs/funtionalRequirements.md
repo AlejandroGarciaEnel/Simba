@@ -182,6 +182,10 @@
 
 - Se asegurara que da igual como se cierre el agente/programa que se asegurara una desconexión de la BBDD para no dejar sesiones basura
 
+- **API (`interface/backend`)**: por ahora el agente se ejecuta exclusivamente en local, sin exposición a red pública ni multiusuario. Bajo esta condición se acepta como riesgo temporal que la API no tenga autenticación/autorización y que CORS permita todos los orígenes (`SIMBA_CORS_ALLOWED_ORIGINS=*` por defecto). Host y puerto de la API también son configurables (`SIMBA_HOST`, `SIMBA_PORT`) para no requerir refactor al restringir el acceso en un despliegue futuro. Este riesgo queda invalidado en cuanto el sistema se exponga a red compartida, entorno productivo o acceso multiusuario.
+
+- **Backlog obligatorio antes de cualquier despliegue expuesto o multiusuario**: implementar login/autenticación y restringir `SIMBA_CORS_ALLOWED_ORIGINS` a orígenes concretos.
+
 ## 5. Estructura informe
 
 - Formato: Documento HTML similar a ./docs/example.html
