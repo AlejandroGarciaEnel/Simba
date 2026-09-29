@@ -184,6 +184,8 @@
 
 - **API (`interface/backend`)**: por ahora el agente se ejecuta exclusivamente en local, sin exposición a red pública ni multiusuario. Bajo esta condición se acepta como riesgo temporal que la API no tenga autenticación/autorización y que CORS permita todos los orígenes (`SIMBA_CORS_ALLOWED_ORIGINS=*` por defecto). Host y puerto de la API también son configurables (`SIMBA_HOST`, `SIMBA_PORT`) para no requerir refactor al restringir el acceso en un despliegue futuro. Este riesgo queda invalidado en cuanto el sistema se exponga a red compartida, entorno productivo o acceso multiusuario.
 
+- **Aislamiento de sesiones de chat**: el historial de conversación ya no es un estado global compartido; cada cliente se identifica mediante el header `X-Session-Id` (generado por el servidor con `secrets.token_urlsafe`, nunca aceptado tal cual del cliente si no es válido/activo). Cada sesión expira por inactividad tras 30 minutos (sliding window: cualquier request la renueva). Límites de protección: máximo 200 mensajes de historial por sesión y 500 sesiones concurrentes (con expulsión de la más antigua por inactividad si se supera). El frontend guarda el `X-Session-Id` y el historial visible en `sessionStorage` (aislado por pestaña), reservando `localStorage` solo para preferencias como el tema oscuro.
+
 - **Backlog obligatorio antes de cualquier despliegue expuesto o multiusuario**: implementar login/autenticación y restringir `SIMBA_CORS_ALLOWED_ORIGINS` a orígenes concretos.
 
 ## 5. Estructura informe

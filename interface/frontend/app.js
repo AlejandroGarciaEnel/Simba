@@ -8,6 +8,25 @@ let chatHistory = [];
 let isDarkMode = localStorage.getItem("darkMode") === "true";
 let isLoading = false;
 
+// ========== Gestión de Sesión (X-Session-Id) ==========
+let sessionId = sessionStorage.getItem("sessionId") || null;
+
+function getSessionHeaders(extraHeaders = {}) {
+    const headers = { ...extraHeaders };
+    if (sessionId) {
+        headers["X-Session-Id"] = sessionId;
+    }
+    return headers;
+}
+
+function updateSessionIdFromResponse(response) {
+    const newSessionId = response.headers.get("X-Session-Id");
+    if (newSessionId && newSessionId !== sessionId) {
+        sessionId = newSessionId;
+        sessionStorage.setItem("sessionId", sessionId);
+    }
+}
+
 // ========== Inicialización ==========
 document.addEventListener("DOMContentLoaded", () => {
     initializeTheme();
@@ -98,16 +117,19 @@ async function sendMessage() {
 
     isLoading = true;
     showLoadingIndicator();
+    document.getElementById("clear-history-btn").disabled = true;
 
     try {
         const response = await fetch(`${API_BASE}/chat`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: getSessionHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({
                 message: message,
                 history: chatHistory.slice(0, -1),
             }),
         });
+
+        updateSessionIdFromResponse(response);
 
         if (!response.ok) {
             throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -143,6 +165,7 @@ async function sendMessage() {
     } finally {
         isLoading = false;
         hideLoadingIndicator();
+        document.getElementById("clear-history-btn").disabled = false;
         saveChatHistory();
     }
 }
@@ -355,11 +378,12 @@ async function retryConnection() {
 
 // ========== Historial de Chat ==========
 function saveChatHistory() {
-    localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+    // scope por pestaña, igual que sessionId, para no mezclar historial entre pestañas/sesiones
+    sessionStorage.setItem("chatHistory", JSON.stringify(chatHistory));
 }
 
 function restoreChatHistory() {
-    const saved = localStorage.getItem("chatHistory");
+    const saved = sessionStorage.getItem("chatHistory");
     if (saved) {
         try {
             chatHistory = JSON.parse(saved);
@@ -374,13 +398,24 @@ function restoreChatHistory() {
     }
 }
 
-function clearChatHistory() {
+async function clearChatHistory() {
     if (!confirm("¿Estás seguro de que deseas limpiar el historial?")) {
         return;
     }
 
+    try {
+        const response = await fetch(`${API_BASE}/clear-history`, {
+            method: "POST",
+            headers: getSessionHeaders(),
+        });
+        updateSessionIdFromResponse(response);
+    } catch (error) {
+        // fallo de red al notificar al backend no debe bloquear la limpieza local
+        console.error("Error limpiando historial en backend:", error);
+    }
+
     chatHistory = [];
-    localStorage.removeItem("chatHistory");
+    sessionStorage.removeItem("chatHistory");
 
     const messagesContainer = document.getElementById("chat-messages");
     messagesContainer.innerHTML = `

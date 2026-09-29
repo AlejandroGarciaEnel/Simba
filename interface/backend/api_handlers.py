@@ -2,12 +2,13 @@
 Adaptador que traduce mensajes del usuario a llamadas del agente LangChain.
 Formatea respuestas para la API REST.
 """
-import sys
 import re
+import secrets
+import sys
+import threading
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
-import json
-from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Any
 
 # Agregar raíz del proyecto al path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -17,13 +18,91 @@ from agent.agent import build_agent
 from db.connection import get_connection
 from langchain_core.messages import AIMessage
 
+# Formato esperado de un session id emitido por secrets.token_urlsafe(32)
+_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
+SESSION_TTL = timedelta(minutes=30)
+MAX_HISTORY_MESSAGES = 200
+MAX_CONCURRENT_SESSIONS = 500
+
+
+class SessionStore:
+    """Historiales de chat aislados por sesión, con expiración por inactividad."""
+
+    def __init__(self):
+        self._sessions: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def resolve(self, requested_id: Optional[str]) -> str:
+        """
+        Devuelve un session id válido y activo. El servidor es la única autoridad
+        que emite ids: si el propuesto no es válido/activo, se crea uno nuevo.
+        """
+        with self._lock:
+            self._purge_expired()
+            if requested_id and self._is_active(requested_id):
+                self._touch(requested_id)
+                return requested_id
+            return self._create()
+
+    def get_history(self, session_id: str) -> List[Dict]:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            return list(session["history"]) if session else []
+
+    def append_message(self, session_id: str, role: str, content: str) -> bool:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                return False
+            session["history"].append({"role": role, "content": content})
+            # limitar crecimiento del historial por sesión (ver docs/funtionalRequirements.md)
+            session["history"] = session["history"][-MAX_HISTORY_MESSAGES:]
+            self._touch(session_id)
+            return True
+
+    def clear(self, session_id: str) -> None:
+        with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id]["history"] = []
+                self._touch(session_id)
+
+    def _is_active(self, session_id: str) -> bool:
+        if not _SESSION_ID_PATTERN.match(session_id):
+            return False
+        session = self._sessions.get(session_id)
+        return session is not None and not self._is_expired(session)
+
+    def _is_expired(self, session: Dict[str, Any]) -> bool:
+        return datetime.utcnow() - session["last_activity"] > SESSION_TTL
+
+    def _touch(self, session_id: str) -> None:
+        self._sessions[session_id]["last_activity"] = datetime.utcnow()
+
+    def _purge_expired(self) -> None:
+        expired = [sid for sid, s in self._sessions.items() if self._is_expired(s)]
+        for sid in expired:
+            del self._sessions[sid]
+        self._evict_oldest_if_over_capacity()
+
+    def _evict_oldest_if_over_capacity(self) -> None:
+        # protección DoS: limita sesiones concurrentes descartando la más antigua (LRU)
+        while len(self._sessions) > MAX_CONCURRENT_SESSIONS:
+            oldest_id = min(self._sessions, key=lambda sid: self._sessions[sid]["last_activity"])
+            del self._sessions[oldest_id]
+
+    def _create(self) -> str:
+        session_id = secrets.token_urlsafe(32)
+        self._sessions[session_id] = {"history": [], "last_activity": datetime.utcnow()}
+        self._evict_oldest_if_over_capacity()
+        return session_id
+
 
 class ChatHandler:
     """Manejador de chat que integra el agente Oracle con la API REST."""
     
     def __init__(self):
         self.executor = None
-        self.chat_history: List[Dict] = []
+        self.sessions = SessionStore()
         self.db_connected = False
         self.connection_error = None
     
@@ -86,11 +165,12 @@ class ChatHandler:
                         return "\n".join(parts)
         return "No se pudo extraer una respuesta del agente"
     
-    def process_message(self, user_message: str) -> Dict[str, Any]:
+    def process_message(self, session_id: str, user_message: str) -> Dict[str, Any]:
         """
         Procesa un mensaje del usuario y obtiene respuesta del agente.
         
         Args:
+            session_id: Identificador de la sesión aislada del cliente
             user_message: Mensaje del usuario
             
         Returns:
@@ -104,24 +184,25 @@ class ChatHandler:
                 "can_retry": True
             }
         
-        # Agregar mensaje del usuario al historial
-        self.chat_history.append({
-            "role": "user",
-            "content": user_message
-        })
+        # Agregar mensaje del usuario al historial de la sesión
+        if not self.sessions.append_message(session_id, "user", user_message):
+            return {
+                "success": False,
+                "message": "Tu sesión expiró por inactividad. Se ha iniciado una nueva sesión, por favor reenvía tu pregunta.",
+                "error": True,
+                "can_retry": True
+            }
         
         try:
-            # Invocar agente con historial (igual que en main.py)
-            result = self.executor.invoke({"messages": self.chat_history})
+            # Invocar agente con historial de la sesión
+            history = self.sessions.get_history(session_id)
+            result = self.executor.invoke({"messages": history})
             
             # Extraer respuesta
             assistant_message = self._extract_answer(result)
             
-            # Agregar respuesta al historial
-            self.chat_history.append({
-                "role": "assistant",
-                "content": assistant_message
-            })
+            # Agregar respuesta al historial de la sesión
+            self.sessions.append_message(session_id, "assistant", assistant_message)
 
             report_filename = self._extract_generated_filename(assistant_message, "dbCheck")            
             return {

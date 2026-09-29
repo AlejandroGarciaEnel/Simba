@@ -3,7 +3,7 @@ Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
 import os
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +44,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Session-Id"],
 )
 
 # Obtener rutas
@@ -52,9 +53,18 @@ FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
 PROJECT_ROOT = BACKEND_DIR.parent.parent
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
-# Handler global
+# Handler global (agente/conexión compartidos; el historial se aísla por sesión)
 chat_handler = ChatHandler()
 initialization_done = False
+
+SESSION_HEADER = "X-Session-Id"
+
+
+def resolve_session(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)) -> str:
+    """Resuelve el session id del request y lo propaga en la respuesta."""
+    session_id = chat_handler.sessions.resolve(x_session_id)
+    response.headers[SESSION_HEADER] = session_id
+    return session_id
 
 
 @app.on_event("startup")
@@ -99,7 +109,7 @@ async def health_check():
 
 
 @app.post("/api/chat")
-async def chat(payload: ChatMessage):
+async def chat(payload: ChatMessage, response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):
     """
     Endpoint principal de chat.
     Recibe pregunta del usuario y retorna respuesta del agente.
@@ -113,9 +123,10 @@ async def chat(payload: ChatMessage):
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
     
+    session_id = resolve_session(response, x_session_id)
     try:
-        # Procesar mensaje
-        result = chat_handler.process_message(payload.message)
+        # Procesar mensaje dentro de la sesión aislada del cliente
+        result = chat_handler.process_message(session_id, payload.message)
         
         return result
         
@@ -170,17 +181,19 @@ async def download_report(filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/chat-history")
-async def get_chat_history():
-    """Retorna el historial de chat actual."""
+async def get_chat_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):
+    """Retorna el historial de chat de la sesión del cliente."""
+    session_id = resolve_session(response, x_session_id)
     return {
-        "history": chat_handler.chat_history
+        "history": chat_handler.sessions.get_history(session_id)
     }
 
 
 @app.post("/api/clear-history")
-async def clear_history():
-    """Limpia el historial de chat."""
-    chat_handler.chat_history = []
+async def clear_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):
+    """Limpia el historial de chat de la sesión del cliente."""
+    session_id = resolve_session(response, x_session_id)
+    chat_handler.sessions.clear(session_id)
     return {
         "success": True,
         "message": "Historial limpiado"
