@@ -186,6 +186,8 @@
 
 - **Aislamiento de sesiones de chat**: el historial de conversación ya no es un estado global compartido; cada cliente se identifica mediante el header `X-Session-Id` (generado por el servidor con `secrets.token_urlsafe`, nunca aceptado tal cual del cliente si no es válido/activo). Cada sesión expira por inactividad tras 30 minutos (sliding window: cualquier request la renueva). Límites de protección: máximo 200 mensajes de historial por sesión y 500 sesiones concurrentes (con expulsión de la más antigua por inactividad si se supera). El frontend guarda el `X-Session-Id` y el historial visible en `sessionStorage` (aislado por pestaña), reservando `localStorage` solo para preferencias como el tema oscuro.
 
+- **Timeouts, límites y métricas de consultas** (`db/queries.py`, `report/generator.py`): cada consulta Oracle aplica un timeout (`SIMBA_DB_QUERY_TIMEOUT_MS`, 5000 ms por defecto) para no bloquear el agente ante una BD lenta o colgada, y una salvaguarda defensiva que trunca cualquier resultado a un máximo de 500 filas aunque la query no tenga límite explícito. Cada consulta y cada generación de informe registran en el log (`db.queries`/`report.generator`) su duración, número de filas y si hubo error o truncado, identificando la función RF que la originó.
+
 - **Backlog obligatorio antes de cualquier despliegue expuesto o multiusuario**: implementar login/autenticación y restringir `SIMBA_CORS_ALLOWED_ORIGINS` a orígenes concretos.
 
 ## 5. Estructura informe

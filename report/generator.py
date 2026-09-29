@@ -4,8 +4,10 @@ Recoge datos de todas las queries y renderiza el informe HTML con Jinja2.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader
 
 import db.queries as q
 
+logger = logging.getLogger("report.generator")
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 
@@ -48,6 +51,7 @@ def _extract_text_excerpt(html: str, max_lines: int = 3) -> list[str]:
 
 def generate() -> str:
     """Genera el informe HTML y devuelve la ruta del fichero creado."""
+    start = time.perf_counter()
     env_name = os.environ.get("DB_SERVICE", "BBDD")
     now = datetime.now()
     generated_at = now.strftime("%d-%m-%Y %H:%M")
@@ -132,4 +136,8 @@ def generate() -> str:
 
     filename = _build_report_filename(now)
     output_path = _write_html_artifact(REPORTS_DIR, filename, html)
+
+    duration_ms = (time.perf_counter() - start) * 1000
+    logger.info("report_generated duration_ms=%.1f filename=%s", duration_ms, filename)
+
     return str(output_path)

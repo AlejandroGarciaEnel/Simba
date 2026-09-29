@@ -79,3 +79,34 @@ def test_get_blocking_sessions_maps_columns(mock_db_connection, fake_cursor):
     assert rows == [
         {"SID": 101, "SERIAL": 5001, "USUARIO": "APP_USER", "MACHINE": "srv-app-01"}
     ]
+
+
+def test_fetchall_as_dicts_reraises_execute_exception_unchanged(mock_db_connection, fake_cursor):
+    original_error = RuntimeError("ORA-12170: connection timeout")
+    fake_cursor.execute.side_effect = original_error
+
+    try:
+        q.get_cpu_usage()
+        assert False, "se esperaba que la excepción se propagara"
+    except RuntimeError as raised:
+        assert raised is original_error
+        assert str(raised) == "ORA-12170: connection timeout"
+
+
+def test_fetchall_as_dicts_truncates_rows_over_hard_limit(mock_db_connection, fake_cursor):
+    rows = [(f"USER_{i}", 5000 + i, "SYS", "srv") for i in range(q.HARD_ROW_LIMIT + 1)]
+    set_query_result(fake_cursor, ["USUARIO", "SERIAL", "STATUS", "MACHINE"], rows)
+
+    result = q._fetchall_as_dicts("SELECT * FROM v$session")
+
+    assert len(result) == q.HARD_ROW_LIMIT
+    assert result[0]["USUARIO"] == "USER_0"
+
+
+def test_fetchall_as_dicts_does_not_truncate_at_exact_limit(mock_db_connection, fake_cursor):
+    rows = [(f"USER_{i}", 5000 + i, "SYS", "srv") for i in range(q.HARD_ROW_LIMIT)]
+    set_query_result(fake_cursor, ["USUARIO", "SERIAL", "STATUS", "MACHINE"], rows)
+
+    result = q._fetchall_as_dicts("SELECT * FROM v$session")
+
+    assert len(result) == q.HARD_ROW_LIMIT
