@@ -5,17 +5,49 @@ una lista de diccionarios (columna → valor).
 """
 from __future__ import annotations
 
+import inspect
+import logging
+import os
+import time
 from typing import Any
 
 from db.connection import get_connection
 
+logger = logging.getLogger("db.queries")
+
+# Timeout por query en milisegundos (cx_Oracle Cursor.callTimeout); configurable
+# vía SIMBA_DB_QUERY_TIMEOUT_MS para no bloquear el agente ante una BD lenta/colgada.
+QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
+
+# Salvaguarda defensiva: nunca devolver más filas que esto, aunque una query
+# sin límite explícito (p. ej. get_sga_info) devuelva un resultado inesperado.
+HARD_ROW_LIMIT = 500
+
 
 def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, Any]]:
+    # nombre de la función RF llamante (db.queries.get_xxx), para identificar la query en los logs
+    operation = inspect.stack()[1].function
+    start = time.perf_counter()
     conn = get_connection()
-    with conn.cursor() as cur:
-        cur.execute(sql, params or {})
-        columns = [col[0] for col in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+    try:
+        with conn.cursor() as cur:
+            cur.callTimeout = QUERY_TIMEOUT_MS
+            cur.execute(sql, params or {})
+            columns = [col[0] for col in cur.description]
+            rows = cur.fetchall()
+    except Exception:
+        duration_ms = (time.perf_counter() - start) * 1000
+        logger.error("query_error op=%s duration_ms=%.1f", operation, duration_ms)
+        raise
+
+    truncated = len(rows) > HARD_ROW_LIMIT
+    if truncated:
+        rows = rows[:HARD_ROW_LIMIT]
+        logger.warning("query_truncated op=%s rows=%d limit=%d", operation, len(rows), HARD_ROW_LIMIT)
+
+    duration_ms = (time.perf_counter() - start) * 1000
+    logger.info("query_ok op=%s duration_ms=%.1f rows=%d", operation, duration_ms, len(rows))
+    return [dict(zip(columns, row)) for row in rows]
 
 
 # ── RF001 ─────────────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ __pycache__/
 *.pyo
 
 # Informes generados
-dbcheck_*.html
+reports/dbCheck_*.html
 
 # Entornos virtuales
 .venv/
