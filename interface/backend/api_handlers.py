@@ -2,6 +2,7 @@
 Adaptador que traduce mensajes del usuario a llamadas del agente LangChain.
 Formatea respuestas para la API REST.
 """
+import os
 import re
 import secrets
 import sys
@@ -17,12 +18,35 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from agent.agent import build_agent
 from db.connection import get_connection
 from langchain_core.messages import AIMessage
+import report.awr_analyzer as awr
 
 # Formato esperado de un session id emitido por secrets.token_urlsafe(32)
 _SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 SESSION_TTL = timedelta(minutes=30)
 MAX_HISTORY_MESSAGES = 200
 MAX_CONCURRENT_SESSIONS = 500
+AWR_SIGNATURE = "WORKLOAD REPOSITORY"
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+def awr_max_bytes() -> int:
+    return max(1, _int_env("SIMBA_AWR_MAX_MB", 20)) * 1024 * 1024
+
+
+def awr_max_files() -> int:
+    return max(1, _int_env("SIMBA_AWR_MAX_FILES", 50))
+
+
+class AwrUploadError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class SessionStore:
@@ -256,6 +280,34 @@ class ChatHandler:
         if not match:
             return None
         return Path(match.group(0)).name
+
+    def store_and_analyze_awr(self, session_id: str, original_name: str, content: bytes) -> Dict[str, Any]:
+        """Valida y guarda un informe AWR subido en awr/, lo analiza y lo añade al historial de la sesión."""
+        if Path(original_name or "").suffix.lower() not in awr.AWR_EXTENSIONS:
+            raise AwrUploadError("Solo se admiten informes AWR en formato .html o .htm.")
+        if not content:
+            raise AwrUploadError("El fichero está vacío.")
+        if len(content) > awr_max_bytes():
+            raise AwrUploadError("El informe AWR supera el tamaño máximo permitido.", status_code=413)
+        if AWR_SIGNATURE not in content.decode("utf-8", errors="ignore").upper():
+            raise AwrUploadError("El fichero no parece un informe AWR de Oracle.")
+
+        awr.AWR_DIR.mkdir(parents=True, exist_ok=True)
+        # el nombre lo genera el servidor: el del cliente nunca se usa como ruta
+        filename = f"awr_{datetime.now():%d-%m-%Y_%H-%M-%S}_{secrets.token_hex(4)}.html"
+        file_path = awr.AWR_DIR / filename
+        file_path.write_bytes(content)
+
+        summary = awr.summarize_awr_report(file_path)
+        self._prune_awr_files()
+        self.sessions.append_message(session_id, "user", f"[Informe AWR cargado: {filename}]")
+        self.sessions.append_message(session_id, "assistant", summary)
+        return {"success": True, "filename": filename, "message": summary}
+
+    def _prune_awr_files(self) -> None:
+        files = sorted(awr.AWR_DIR.glob("awr_*.htm*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old_file in files[awr_max_files():]:
+            old_file.unlink(missing_ok=True)
     
     def generate_report(self) -> Tuple[bool, str, str]:
         """

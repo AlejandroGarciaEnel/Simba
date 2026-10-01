@@ -31,7 +31,10 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, A
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.callTimeout = QUERY_TIMEOUT_MS
+            try:
+                cur.callTimeout = QUERY_TIMEOUT_MS
+            except AttributeError:
+                logger.debug("cursor_without_calltimeout op=%s", operation)
             cur.execute(sql, params or {})
             columns = [col[0] for col in cur.description]
             rows = cur.fetchall()

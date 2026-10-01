@@ -12,6 +12,7 @@ from tabulate import tabulate
 from langchain_core.tools import tool
 
 import db.queries as q
+from report.awr_analyzer import resolve_awr_path, summarize_awr_report
 
 
 # ── RF001 ─────────────────────────────────────────────────────────────────────
@@ -551,6 +552,26 @@ def generate_report(_: str = "") -> str:
     return f"Informe generado correctamente. Archivo: {filename}"
 
 
+# ── RF021 ────────────────────────────────────────────────────────────────────
+@tool
+def analyze_awr_report(file_path: str = "docs/awr_example.html") -> str:
+    """
+    Analiza un informe AWR HTML y devuelve un resumen ejecutivo de sus resultados,
+    hallazgos principales y recomendaciones de seguimiento en la BBDD activa.
+    Parámetro opcional:
+    - file_path: nombre de un informe subido a la carpeta awr/ (p. ej. awr_30-09-2026_10-00-00_ab12cd34.html)
+      o docs/awr_example.html (valor por defecto)
+    """
+    normalized_path = (file_path or "docs/awr_example.html").strip()
+    try:
+        path = resolve_awr_path(normalized_path)
+        return summarize_awr_report(path)
+    except ValueError as exc:
+        return str(exc)
+    except FileNotFoundError:
+        return f"Informe AWR no encontrado: {Path(normalized_path).name}"
+
+
 ALL_TOOLS = [
     get_cpu_usage,
     get_top_cpu_queries,
@@ -584,4 +605,5 @@ ALL_TOOLS = [
     get_sessions_by_user_status,
     get_total_sessions,
     generate_report,
+    analyze_awr_report,
 ]

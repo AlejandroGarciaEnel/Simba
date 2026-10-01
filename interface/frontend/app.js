@@ -4,6 +4,7 @@
  */
 
 const API_BASE = "/api";
+const AWR_MAX_MB = 20;
 let chatHistory = [];
 let isDarkMode = localStorage.getItem("darkMode") === "true";
 let isLoading = false;
@@ -31,6 +32,7 @@ function updateSessionIdFromResponse(response) {
 document.addEventListener("DOMContentLoaded", () => {
     initializeTheme();
     initializeEventListeners();
+    initializeAwrUpload();
     restoreChatHistory();
     checkHealth();
     
@@ -93,12 +95,121 @@ function initializeEventListeners() {
     retryBtn.addEventListener("click", retryConnection);
 
     // Quick actions
-    document.querySelectorAll(".quick-action-btn").forEach((btn) => {
+    document.querySelectorAll(".quick-action-btn[data-query]").forEach((btn) => {
         btn.addEventListener("click", () => {
             document.getElementById("user-input").value = btn.dataset.query;
             sendMessage();
         });
     });
+}
+
+// ========== Carga de informe AWR (RF021) ==========
+function initializeAwrUpload() {
+    const chatContainer = document.querySelector(".chat-container");
+    const overlay = document.getElementById("drop-overlay");
+    const fileInput = document.getElementById("awr-file-input");
+    let dragDepth = 0;
+
+    // evita que el navegador abra el HTML si se suelta fuera de la zona
+    ["dragover", "drop"].forEach((evt) => window.addEventListener(evt, (e) => e.preventDefault()));
+
+    chatContainer.addEventListener("dragenter", (e) => {
+        if (!dragHasFiles(e)) return;
+        dragDepth++;
+        overlay.classList.add("active");
+    });
+
+    chatContainer.addEventListener("dragleave", () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) overlay.classList.remove("active");
+    });
+
+    chatContainer.addEventListener("drop", (e) => {
+        dragDepth = 0;
+        overlay.classList.remove("active");
+        handleAwrFiles(e.dataTransfer.files);
+    });
+
+    document.getElementById("awr-upload-btn").addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+        handleAwrFiles(fileInput.files);
+        fileInput.value = "";
+    });
+}
+
+function dragHasFiles(e) {
+    return e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+}
+
+function handleAwrFiles(files) {
+    if (!files || files.length === 0) return;
+    if (isLoading) {
+        showErrorBanner("Espera a que termine la operación en curso.", false);
+        return;
+    }
+    if (files.length > 1) {
+        showErrorBanner("Carga un único informe AWR cada vez.", false);
+        return;
+    }
+
+    const file = files[0];
+    if (!/\.html?$/i.test(file.name)) {
+        showErrorBanner("Solo se admiten informes AWR en formato .html o .htm.", false);
+        return;
+    }
+    if (file.size === 0) {
+        showErrorBanner("El fichero está vacío.", false);
+        return;
+    }
+    if (file.size > AWR_MAX_MB * 1024 * 1024) {
+        showErrorBanner(`El informe supera el tamaño máximo de ${AWR_MAX_MB} MB.`, false);
+        return;
+    }
+
+    uploadAwrReport(file);
+}
+
+async function uploadAwrReport(file) {
+    const userMessage = `📄 Informe AWR cargado: ${file.name}`;
+    addMessageToUI("user", userMessage);
+    chatHistory.push({ role: "user", content: userMessage });
+
+    isLoading = true;
+    showLoadingIndicator();
+    document.getElementById("clear-history-btn").disabled = true;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        // sin Content-Type: el navegador añade el boundary de multipart
+        const response = await fetch(`${API_BASE}/awr/upload`, {
+            method: "POST",
+            headers: getSessionHeaders(),
+            body: formData,
+        });
+
+        updateSessionIdFromResponse(response);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.detail || data.message || `Error ${response.status}`);
+        }
+
+        addMessageToUI("assistant", data.message);
+        chatHistory.push({ role: "assistant", content: data.message });
+        hideErrorBanner();
+        showNotification("✅ Informe AWR guardado y analizado");
+    } catch (error) {
+        console.error("Error subiendo AWR:", error);
+        showErrorBanner(`No se pudo analizar el informe AWR: ${error.message}`, false);
+        addMessageToUI("assistant", `⚠️ No se pudo analizar el informe AWR: ${error.message}`);
+    } finally {
+        isLoading = false;
+        hideLoadingIndicator();
+        document.getElementById("clear-history-btn").disabled = false;
+        saveChatHistory();
+    }
 }
 
 // ========== Enviar Mensaje ==========
@@ -432,6 +543,7 @@ async function clearChatHistory() {
                     <li>Detectar sesiones bloqueadas</li>
                     <li>Encontrar sesiones inactivas</li>
                     <li>Generar informes completos en HTML</li>
+                    <li>Analizar informes AWR (arrastra el .html sobre el chat)</li>
                 </ul>
                 <p>¿Qué deseas saber? Usa los botones de la izquierda o escribe tu pregunta.</p>
             </div>

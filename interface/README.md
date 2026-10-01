@@ -129,6 +129,20 @@ Intenta resetear la conexión con la BD (3 reintentos automáticos).
 ### `GET /api/download-report/{filename}`
 Descarga un informe HTML generado.
 
+### `POST /api/awr/upload`
+Sube un informe AWR (RF021) como `multipart/form-data` en el campo `file`. Se usa al arrastrar el `.html` sobre el chat o con el botón "Cargar informe AWR". El fichero se guarda en `./awr` con un nombre generado por el servidor y se devuelve el resumen. No requiere BD ni LLM.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "filename": "awr_30-09-2026_10-15-02_ab12cd34.html",
+  "message": "Resumen AWR para ..."
+}
+```
+
+**Errores:** `400` extensión no válida, fichero vacío o no es un AWR; `413` supera `SIMBA_AWR_MAX_MB`.
+
 ### `GET /api/chat-history`
 Retorna el historial de chat del servidor.
 
@@ -152,6 +166,10 @@ DB_SERVICE=ORCLPDB1
 # OpenAI
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
+
+# Informes AWR subidos (RF021)
+SIMBA_AWR_MAX_MB=20
+SIMBA_AWR_MAX_FILES=50
 ```
 
 ---

@@ -247,6 +247,13 @@ La API gestiona:
 - **Descripción**: devuelve el total de sesiones conectadas.
 - **Resultado**: número total de sesiones, además de activas e inactivas > 30 minutos
 
+### RF021 — Análisis de informe AWR
+- **Descripción**: analiza un informe HTML de AWR y devuelve un resumen ejecutivo con base de datos, instantáneas, instancias, hallazgos de ADDM y recomendaciones de seguimiento.
+- **Parámetro**: file_path (nombre de un informe de la carpeta awr/ o docs/awr_example.html, valor por defecto). Cualquier otra ruta se rechaza.
+- **Carga desde la web**: el usuario arrastra y suelta el .html sobre el chat (o usa el botón "Cargar informe AWR"). El fichero se envía a `POST /api/awr/upload` (multipart, campo `file`), se guarda en `./awr` con un nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y se analiza al momento, sin necesitar BD ni LLM. El resumen se añade al historial de la sesión para poder hacer preguntas de seguimiento.
+- **Validaciones**: extensión .html/.htm, fichero no vacío, contenido con la cabecera `WORKLOAD REPOSITORY`, tamaño máximo `SIMBA_AWR_MAX_MB` (20 MB por defecto). Se conservan como máximo `SIMBA_AWR_MAX_FILES` informes (50 por defecto), eliminando los más antiguos.
+- **Resultado**: texto resumido, legible para un usuario no experto, con la guía de qué RF de monitorización en vivo puede usar para contrastar la causa real
+
 ---
 
 ## 7. Reglas de negocio y comportamiento
@@ -257,6 +264,7 @@ La API gestiona:
 - Si la consulta no puede resolverse con las herramientas disponibles, el sistema lo indica explícitamente.
 - Las consultas deben protegerse con timeout y límite defensivo de filas.
 - Los informes se generan en el directorio reports/ y usan un nombre generado automáticamente.
+- Los informes AWR subidos desde la web se almacenan en el directorio awr/ y nunca se sirven de vuelta al navegador.
 
 ---
 
@@ -271,6 +279,7 @@ El proyecto tiene un enfoque local y no productivo por defecto.
 - exposición de errores internos en algunos endpoints de salud
 - Gestión independiente de reintentos para conexión Oracle y agente LLM
 - Timeout de conexión a nivel de query con límite defensivo de 500 filas
+- Subida de informes AWR sin autenticación: con CORS abierto, cualquier web abierta en el navegador podría enviar ficheros al servidor local (mitigado con límite de tamaño, validación de contenido, nombre generado en servidor y rotación de ficheros)
 
 **Recomendaciones antes de exposición real**:
 - cerrar CORS a orígenes concretos

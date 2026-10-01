@@ -9,6 +9,10 @@ __pycache__/
 # Informes generados
 reports/dbCheck_*.html
 
+# Informes AWR subidos desde la web
+awr/*.html
+awr/*.htm
+
 # Entornos virtuales
 .venv/
 venv/

@@ -58,3 +58,30 @@ def test_generate_report_tool_returns_generated_filename(mocker):
     result = tools.generate_report.invoke({})
 
     assert "dbCheck_01-01-2026_00-00.html" in result
+
+
+def test_analyze_awr_report_rejects_paths_outside_allowed_dirs(mocker):
+    summarize = mocker.patch.object(tools, "summarize_awr_report")
+
+    for path in ("../.env", "C:/Windows/win.ini", "awr/../.env", "docs/example.html"):
+        result = tools.analyze_awr_report.invoke({"file_path": path})
+        assert "no permitida" in result
+
+    summarize.assert_not_called()
+
+
+def test_analyze_awr_report_accepts_uploaded_filename(mocker, tmp_path, monkeypatch):
+    monkeypatch.setattr("report.awr_analyzer.AWR_DIR", tmp_path)
+    summarize = mocker.patch.object(tools, "summarize_awr_report", return_value="resumen")
+
+    result = tools.analyze_awr_report.invoke({"file_path": "awr_01-01-2026_00-00-00_abcd.html"})
+
+    assert result == "resumen"
+    summarize.assert_called_once_with((tmp_path / "awr_01-01-2026_00-00-00_abcd.html").resolve())
+
+
+def test_analyze_awr_report_accepts_default_example(mocker):
+    summarize = mocker.patch.object(tools, "summarize_awr_report", return_value="resumen")
+
+    assert tools.analyze_awr_report.invoke({}) == "resumen"
+    summarize.assert_called_once()

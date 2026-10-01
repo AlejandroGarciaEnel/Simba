@@ -3,7 +3,8 @@ Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
 import os
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +15,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 from dotenv import load_dotenv
 
-from .api_handlers import ChatHandler
+from .api_handlers import ChatHandler, AwrUploadError, awr_max_bytes
 
 load_dotenv()  # permite definir SIMBA_* en .env, igual que db/connection.py
 
@@ -46,6 +47,18 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Session-Id"],
 )
+
+AWR_UPLOAD_PATH = "/api/awr/upload"
+
+
+@app.middleware("http")
+async def limit_awr_upload_size(request, call_next):
+    # se rechaza antes de que Starlette vuelque el multipart a disco (64 KB de margen para cabeceras)
+    if request.url.path == AWR_UPLOAD_PATH:
+        content_length = request.headers.get("content-length", "")
+        if content_length.isdigit() and int(content_length) > awr_max_bytes() + 64 * 1024:
+            return JSONResponse(status_code=413, content={"detail": "El informe AWR supera el tamaño máximo permitido."})
+    return await call_next(request)
 
 # Obtener rutas
 BACKEND_DIR = Path(__file__).parent
@@ -192,6 +205,37 @@ async def download_report(filename: str):
     except Exception as e:
         logger.error(f"Error descargando informe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(AWR_UPLOAD_PATH)
+async def upload_awr(
+    response: Response,
+    file: UploadFile = File(...),
+    x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+):
+    """Recibe un informe AWR (RF021), lo guarda en awr/ y devuelve su resumen. No requiere BD ni LLM."""
+    session_id = resolve_session(response, x_session_id)
+    session_headers = {SESSION_HEADER: session_id}
+    max_bytes = awr_max_bytes()
+    chunks: List[bytes] = []
+    total = 0
+    while chunk := await file.read(1024 * 1024):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413, detail="El informe AWR supera el tamaño máximo permitido.", headers=session_headers
+            )
+        chunks.append(chunk)
+
+    try:
+        return await run_in_threadpool(
+            chat_handler.store_and_analyze_awr, session_id, file.filename or "", b"".join(chunks)
+        )
+    except AwrUploadError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e), headers=session_headers)
+    except Exception as e:
+        logger.error(f"Error analizando informe AWR: {str(e)}")
+        raise HTTPException(status_code=500, detail="No se pudo analizar el informe AWR.", headers=session_headers)
 
 @app.get("/api/chat-history")
 async def get_chat_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):

@@ -35,6 +35,10 @@
                 <button class="quick-action-btn" data-query="Genera un informe completo en HTML">
                     🧾 Generar un informe
                 </button>
+                <button id="awr-upload-btn" class="quick-action-btn" title="También puedes arrastrar el .html sobre el chat">
+                    📄 Cargar informe AWR
+                </button>
+                <input type="file" id="awr-file-input" accept=".html,.htm" hidden>
             </div>
             
             <div class="sidebar-footer">
@@ -46,6 +50,9 @@
 
         <!-- Main Chat Area -->
         <main class="chat-container">
+            <div class="drop-overlay" id="drop-overlay" aria-hidden="true">
+                <p>📄 Suelta aquí el informe AWR (.html) para analizarlo</p>
+            </div>
             <div class="chat-header">
                 <h2>Chat con el Agente de Monitorización</h2>
                 <div class="connection-status" id="connection-status">
@@ -65,6 +72,7 @@
                             <li>Detectar sesiones bloqueadas</li>
                             <li>Encontrar sesiones inactivas</li>
                             <li>Generar informes completos en HTML</li>
+                            <li>Analizar informes AWR (arrastra el .html sobre el chat)</li>
                         </ul>
                         <p>¿Qué deseas saber? Usa los botones de la izquierda o escribe tu pregunta.</p>
                     </div>
