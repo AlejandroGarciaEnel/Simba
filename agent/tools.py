@@ -556,8 +556,8 @@ def generate_report(_: str = "") -> str:
 @tool
 def analyze_awr_report(file_path: str = "docs/awr_example.html") -> str:
     """
-    Analiza un informe AWR HTML y devuelve un resumen ejecutivo de sus resultados,
-    hallazgos principales y recomendaciones de seguimiento en la BBDD activa.
+    Analiza un informe AWR HTML y devuelve un resumen ejecutivo extenso de sus resultados,
+    hallazgos principales y ejecuta las recomendaciones de seguimiento en la BBDD activa que creas necesarias.
     Parámetro opcional:
     - file_path: nombre de un informe subido a la carpeta awr/ (p. ej. awr_30-09-2026_10-00-00_ab12cd34.html)
       o docs/awr_example.html (valor por defecto)
