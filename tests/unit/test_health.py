@@ -24,7 +24,7 @@ def healthy_db(monkeypatch):
         {"RESOURCE_NAME": "sessions", "CURRENT_UTILIZATION": 50, "LIMIT_VALUE": "1000"}])
     monkeypatch.setattr(q, "get_tablespace_usage", lambda: [
         {"TABLESPACE_NAME": "USERS", "CONTENTS": "PERMANENT", "USED_PCT": 40}])
-    monkeypatch.setattr(q, "get_total_inactive_sessions", lambda: 3)
+    monkeypatch.setattr(q, "get_cluster_inactive_sessions", lambda: 3)
     monkeypatch.setattr(q, "get_recent_ora_errors", lambda: [])
     monkeypatch.setattr(q, "get_current_wait_events", lambda: [])
     monkeypatch.setattr(q, "get_long_operations", lambda: [])

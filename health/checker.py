@@ -178,7 +178,7 @@ _CHECKS: list[tuple[str, Callable[[], Any], Callable[[Any], list[dict]]]] = [
     ("bloqueos", lambda: q.get_blocked_waits(), _eval_blocking),
     ("limites", lambda: q.get_resource_limits(), _eval_limits),
     ("tablespaces", lambda: q.get_tablespace_usage(), _eval_tablespaces),
-    ("sesiones_inactivas", lambda: q.get_total_inactive_sessions(), _eval_inactive),
+    ("sesiones_inactivas", lambda: q.get_cluster_inactive_sessions(), _eval_inactive),
     ("errores_ora", lambda: q.get_recent_ora_errors(), _eval_errors),
     ("esperas", lambda: q.get_current_wait_events(), _eval_waits),
     ("operaciones_largas", lambda: q.get_long_operations(), _eval_longops),

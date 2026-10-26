@@ -902,22 +902,24 @@ def get_tablespace_usage() -> list[dict[str, Any]]:
 
 
 def get_resource_limits() -> list[dict[str, Any]]:
-    """Sesiones y procesos actuales frente a sus límites (V$PARAMETER).
+    """Sesiones y procesos actuales frente a sus límites, por nodo del clúster (GV$).
 
     V$RESOURCE_LIMIT puede venir vacía para usuarios de solo monitorización.
     """
     sql = """
         SELECT
-            'sessions' AS resource_name,
-            (SELECT COUNT(*) FROM v$session) AS current_utilization,
-            (SELECT TRIM(value) FROM v$parameter WHERE name = 'sessions') AS limit_value
-        FROM dual
+            'sessions (nodo ' || s.inst_id || ')' AS resource_name,
+            s.n                                    AS current_utilization,
+            TRIM(p.value)                          AS limit_value
+        FROM (SELECT inst_id, COUNT(*) AS n FROM gv$session GROUP BY inst_id) s
+        JOIN gv$parameter p ON p.inst_id = s.inst_id AND p.name = 'sessions'
         UNION ALL
         SELECT
-            'processes',
-            (SELECT COUNT(*) FROM v$process),
-            (SELECT TRIM(value) FROM v$parameter WHERE name = 'processes')
-        FROM dual
+            'processes (nodo ' || s.inst_id || ')',
+            s.n,
+            TRIM(p.value)
+        FROM (SELECT inst_id, COUNT(*) AS n FROM gv$process GROUP BY inst_id) s
+        JOIN gv$parameter p ON p.inst_id = s.inst_id AND p.name = 'processes'
     """
     return _fetchall_as_dicts(sql)
 
@@ -938,8 +940,8 @@ def get_blocked_waits(limit: int = 10) -> list[dict[str, Any]]:
                 b.machine              AS maquina_bloqueante,
                 b.program              AS programa_bloqueante,
                 b.last_call_et         AS segundos_ultima_llamada
-            FROM v$session w
-            JOIN v$session b ON b.sid = w.blocking_session
+            FROM gv$session w
+            JOIN gv$session b ON b.inst_id = w.blocking_instance AND b.sid = w.blocking_session
             WHERE w.blocking_session IS NOT NULL
             ORDER BY w.seconds_in_wait DESC
         )
@@ -954,7 +956,7 @@ def get_current_wait_events(limit: int = 5) -> list[dict[str, Any]]:
         SELECT *
         FROM (
             SELECT event AS evento, wait_class AS clase, COUNT(*) AS sesiones
-            FROM v$session
+            FROM gv$session
             WHERE type = 'USER'
               AND status = 'ACTIVE'
               AND wait_class <> 'Idle'
@@ -978,7 +980,7 @@ def get_long_operations(limit: int = 5) -> list[dict[str, Any]]:
                 ROUND(sofar * 100 / NULLIF(totalwork, 0), 1) AS pct_completado,
                 elapsed_seconds         AS segundos_transcurridos,
                 time_remaining          AS segundos_restantes
-            FROM v$session_longops
+            FROM gv$session_longops
             WHERE time_remaining > 0
             ORDER BY elapsed_seconds DESC
         )
@@ -1003,3 +1005,15 @@ def get_recent_ora_errors(hours: int = 1, limit: int = 10) -> list[dict[str, Any
         WHERE ROWNUM <= :limit
     """
     return _fetchall_as_dicts(sql, {"horas": hours, "limit": limit})
+
+
+def get_cluster_inactive_sessions() -> int:
+    """Sesiones inactivas > 30 min sumando todos los nodos del clúster (GV$)."""
+    sql = """
+        SELECT COUNT(*) AS total_inactivas
+        FROM gv$session s
+        WHERE s.status = 'INACTIVE'
+          AND s.last_call_et > 1800
+    """
+    rows = _fetchall_as_dicts(sql)
+    return int(rows[0].get("TOTAL_INACTIVAS") or 0) if rows else 0
