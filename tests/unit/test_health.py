@@ -47,7 +47,28 @@ def test_inactive_blocker_is_reported_as_uncommitted_transaction(healthy_db, mon
 
     assert result["overall"] == checker.CRITICAL
     assert "sin commit" in result["summary"]
-    assert "decisión humana" in result["summary"]
+    assert "último recurso" in result["summary"]
+    assert checker.FUNCTIONAL_NOTE in result["summary"]
+
+
+def test_missing_recommendations_file_does_not_break_the_check(healthy_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(checker, "RECOMMENDATIONS_FILE", tmp_path / "no_existe.json")
+    checker._recommendations.cache_clear()
+    monkeypatch.setattr(q, "get_cpu_usage", lambda: 90.0)
+
+    result = checker.run_checks()
+    checker._recommendations.cache_clear()
+
+    assert result["overall"] == checker.CRITICAL
+    assert checker.FUNCTIONAL_NOTE in result["summary"]
+
+
+def test_every_recommendation_key_used_in_code_exists_in_json():
+    import re
+    source = open(checker.__file__, encoding="utf-8").read()
+    used = set(re.findall(r'"((?:bloqueo|cpu|conexiones|espacio|sesiones|errores)_\w+)"', source))
+
+    assert used <= set(checker._recommendations())
 
 
 def test_failing_check_does_not_abort_the_rest(healthy_db, monkeypatch):

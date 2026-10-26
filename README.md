@@ -278,7 +278,9 @@ largas), aplica reglas de DBA y guarda el resultado en ficheros JSON Lines (`dat
 - API: `POST /api/health-check?force=true|false` y `GET /api/health-history?limit=20`.
 - Algunas comprobaciones requieren permisos (`DBA_TABLESPACE_USAGE_METRICS`, `V$DIAG_ALERT_EXT`); si
   faltan, se marcan como "No disponible" sin abortar la revisión.
-- El bot nunca ejecuta `KILL SESSION`: solo sugiere acciones.
+- El bot nunca ejecuta acciones sobre la BD: solo sugiere. Las recomendaciones viven en
+  `health/recommendations.json` (plantilla pendiente de revisión por el DBA; se edita sin tocar código) y
+  cada revisión recuerda que el equipo funcional debe verificarlas antes de actuar.
 
 ---
 

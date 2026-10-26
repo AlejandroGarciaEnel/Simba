@@ -7,9 +7,12 @@ ni gastar tokens.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable
 
 import db.queries as q
@@ -36,8 +39,26 @@ def cache_ttl() -> timedelta:
     return timedelta(minutes=max(0.0, minutes))
 
 
-def _finding(area: str, severity: str, message: str, action: str = "") -> dict[str, str]:
-    return {"area": area, "severity": severity, "message": message, "action": action}
+FUNCTIONAL_NOTE = "Las recomendaciones son sugerencias: antes de actuar, debe verificarlas el equipo funcional."
+RECOMMENDATIONS_FILE = Path(__file__).with_name("recommendations.json")
+
+
+@lru_cache(maxsize=1)
+def _recommendations() -> dict[str, dict[str, Any]]:
+    """Recomendaciones redactadas por el DBA (health/recommendations.json). Si falta, no se rompe la revisión."""
+    try:
+        data = json.loads(RECOMMENDATIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("recommendations_unavailable error=%s", type(exc).__name__)
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)}
+
+
+def _finding(area: str, severity: str, message: str, rec: str = "") -> dict[str, str]:
+    r = _recommendations().get(rec, {})
+    return {"area": area, "severity": severity, "message": message,
+            "action": r.get("accion", ""), "urgency": r.get("urgencia", ""),
+            "owner": r.get("responsable", "")}
 
 
 def _num(value: Any) -> float:
@@ -50,9 +71,9 @@ def _num(value: Any) -> float:
 def _eval_cpu(data: float) -> list[dict]:
     if data >= CPU_CRIT:
         return [_finding("CPU", CRITICAL, f"CPU al {data:.1f}%.",
-                         "Revisar las queries y sesiones con más CPU; puede ser el efecto de un SQL costoso.")]
+                         "cpu_alta")]
     if data >= CPU_WARN:
-        return [_finding("CPU", WARNING, f"CPU al {data:.1f}%.", "Vigilar la evolución y las queries más costosas.")]
+        return [_finding("CPU", WARNING, f"CPU al {data:.1f}%.", "cpu_alta")]
     return [_finding("CPU", OK, f"CPU al {data:.1f}%.")]
 
 
@@ -67,15 +88,14 @@ def _eval_blocking(rows: list[dict]) -> list[dict]:
            f"La espera mayor es de {wait} s (SID {worst.get('SID_BLOQUEADA')} esperando a SID "
            f"{worst.get('SID_BLOQUEANTE')}, usuario {worst.get('USUARIO_BLOQUEANTE')}, "
            f"programa {worst.get('PROGRAMA_BLOQUEANTE')}, máquina {worst.get('MAQUINA_BLOQUEANTE')}).")
-    action = "Un bloqueo de pocos segundos es normal; seguir su evolución."
+    rec = "bloqueo_corto"
     if worst.get("ESTADO_BLOQUEANTE") == "INACTIVE" and wait >= BLOCK_WARN_SECONDS:
         idle = int(_num(worst.get("SEGUNDOS_ULTIMA_LLAMADA")))
         msg += f" El bloqueante está INACTIVE desde hace {idle} s."
-        action = ("Probable transacción sin commit: contactar con el propietario de la sesión antes de "
-                  "valorar matarla (decisión humana).")
+        rec = "bloqueo_transaccion_abierta"
     elif wait >= BLOCK_WARN_SECONDS:
-        action = "El bloqueante sigue ejecutando: revisar su SQL antes de actuar."
-    return [_finding("Bloqueos", severity, msg, action)]
+        rec = "bloqueo_en_ejecucion"
+    return [_finding("Bloqueos", severity, msg, rec)]
 
 
 def _eval_limits(rows: list[dict]) -> list[dict]:
@@ -86,9 +106,9 @@ def _eval_limits(rows: list[dict]) -> list[dict]:
             continue
         pct = _num(r.get("CURRENT_UTILIZATION")) * 100 / int(limit)
         sev = CRITICAL if pct >= LIMIT_CRIT else WARNING if pct >= LIMIT_WARN else OK
-        action = "Riesgo de ORA-00020; revisar pooling y sesiones inactivas." if sev != OK else ""
+        rec = "conexiones_cerca_limite" if sev != OK else ""
         findings.append(_finding("Conexiones", sev,
-                                 f"{name}: {int(_num(r.get('CURRENT_UTILIZATION')))} de {limit} ({pct:.0f}%).", action))
+                                 f"{name}: {int(_num(r.get('CURRENT_UTILIZATION')))} de {limit} ({pct:.0f}%).", rec))
     return findings or [_finding("Conexiones", INFO, "Sin límites numéricos que evaluar.")]
 
 
@@ -104,7 +124,7 @@ def _eval_tablespaces(rows: list[dict]) -> list[dict]:
         label = f"{r.get('TABLESPACE_NAME')} ({pct:.1f}%)"
         if kind in ("TEMPORARY", "UNDO"):
             findings.append(_finding("TEMP" if kind == "TEMPORARY" else "UNDO", sev, f"Tablespace {label}.",
-                                     "Ampliar o liberar espacio antes de que fallen las operaciones."))
+                                     "espacio_temp" if kind == "TEMPORARY" else "espacio_undo"))
         else:
             permanent[sev].append(label)
     for sev, names in permanent.items():
@@ -112,14 +132,14 @@ def _eval_tablespaces(rows: list[dict]) -> list[dict]:
             findings.append(_finding("Espacio", sev, f"{len(names)} tablespace(s) por encima del "
                                      f"{TABLESPACE_CRIT if sev == CRITICAL else TABLESPACE_WARN:.0f}%: "
                                      f"{', '.join(names)}.",
-                                     "Planificar ampliación o limpieza; al llegar al 100% fallan las inserciones."))
+                                     "espacio_tablespace"))
     return findings or [_finding("Espacio", OK, f"Ningún tablespace supera el {TABLESPACE_WARN:.0f}%.")]
 
 
 def _eval_inactive(total: int) -> list[dict]:
     if total >= INACTIVE_WARN:
         return [_finding("Sesiones", WARNING, f"{total} sesiones inactivas más de 30 min.",
-                         "Posibles conexiones huérfanas o pooling mal configurado.")]
+                         "sesiones_inactivas")]
     return [_finding("Sesiones", OK, f"{total} sesiones inactivas más de 30 min.")]
 
 
@@ -128,10 +148,11 @@ def _eval_errors(rows: list[dict]) -> list[dict]:
         return [_finding("Errores", OK, "Sin errores ORA- en la última hora del alert log.")]
     critical = [r for r in rows if any(c in str(r.get("MENSAJE")) for c in CRITICAL_ORA)]
     sev = CRITICAL if critical else WARNING
+    rec = "errores_ora_graves" if critical else "errores_ora"
     last = rows[0]
     return [_finding("Errores", sev, f"{len(rows)} error(es) ORA- en la última hora. Último: "
                      f"[{last.get('FECHA')}] {last.get('MENSAJE')}",
-                     "Revisar el alert log completo y abrir incidencia si es ORA-00600/07445.")]
+                     rec)]
 
 
 def _eval_waits(rows: list[dict]) -> list[dict]:
@@ -175,7 +196,16 @@ def _build_summary(overall: str, findings: list[dict]) -> str:
         return text
     ordered = sorted(problems, key=lambda f: -_ORDER[f["severity"]])
     lines = [f"Estado global: {overall}."]
-    lines += [f"- [{f['severity']}] {f['area']}: {f['message']} {f['action']}".rstrip() for f in ordered]
+    for f in ordered:
+        line = f"- [{f['severity']}] {f['area']}: {f['message']}"
+        if f["action"]:
+            line += f"\n    Recomendación: {f['action']}"
+            extra = "; ".join(x for x in (f.get("urgency") and f"urgencia: {f['urgency']}",
+                                          f.get("owner") and f"responsable: {f['owner']}") if x)
+            if extra:
+                line += f" ({extra})"
+        lines.append(line)
+    lines.append(FUNCTIONAL_NOTE)
     return "\n".join(lines)
 
 
