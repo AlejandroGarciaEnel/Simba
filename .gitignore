@@ -13,6 +13,9 @@ reports/dbCheck_*.html
 awr/*.html
 awr/*.htm
 
+# Histórico local de revisiones de estado
+data/
+
 # Entornos virtuales
 .venv/
 venv/

@@ -882,3 +882,124 @@ def get_total_sessions() -> int:
     if not rows:
         return 0
     return int(rows[0].get("NUMERO_SESIONES") or 0)
+
+
+# ── Revisión de estado (health check) ─────────────────────────────────────────
+def get_tablespace_usage() -> list[dict[str, Any]]:
+    """Uso de tablespaces: todos los TEMP/UNDO y los permanentes por encima del 70 %."""
+    sql = """
+        SELECT
+            m.tablespace_name,
+            t.contents,
+            ROUND(m.used_percent, 2) AS used_pct
+        FROM dba_tablespace_usage_metrics m
+        JOIN dba_tablespaces t ON t.tablespace_name = m.tablespace_name
+        WHERE t.contents IN ('TEMPORARY', 'UNDO')
+           OR m.used_percent >= 70
+        ORDER BY m.used_percent DESC
+    """
+    return _fetchall_as_dicts(sql)
+
+
+def get_resource_limits() -> list[dict[str, Any]]:
+    """Sesiones y procesos actuales frente a sus límites (V$PARAMETER).
+
+    V$RESOURCE_LIMIT puede venir vacía para usuarios de solo monitorización.
+    """
+    sql = """
+        SELECT
+            'sessions' AS resource_name,
+            (SELECT COUNT(*) FROM v$session) AS current_utilization,
+            (SELECT TRIM(value) FROM v$parameter WHERE name = 'sessions') AS limit_value
+        FROM dual
+        UNION ALL
+        SELECT
+            'processes',
+            (SELECT COUNT(*) FROM v$process),
+            (SELECT TRIM(value) FROM v$parameter WHERE name = 'processes')
+        FROM dual
+    """
+    return _fetchall_as_dicts(sql)
+
+
+def get_blocked_waits(limit: int = 10) -> list[dict[str, Any]]:
+    """Sesiones bloqueadas con el tiempo que llevan esperando y el estado del bloqueante."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT
+                w.sid                  AS sid_bloqueada,
+                w.username             AS usuario_bloqueado,
+                w.event                AS evento,
+                w.seconds_in_wait      AS segundos_espera,
+                b.sid                  AS sid_bloqueante,
+                b.username             AS usuario_bloqueante,
+                b.status               AS estado_bloqueante,
+                b.machine              AS maquina_bloqueante,
+                b.program              AS programa_bloqueante,
+                b.last_call_et         AS segundos_ultima_llamada
+            FROM v$session w
+            JOIN v$session b ON b.sid = w.blocking_session
+            WHERE w.blocking_session IS NOT NULL
+            ORDER BY w.seconds_in_wait DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_current_wait_events(limit: int = 5) -> list[dict[str, Any]]:
+    """Eventos de espera de las sesiones de usuario activas ahora mismo."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT event AS evento, wait_class AS clase, COUNT(*) AS sesiones
+            FROM v$session
+            WHERE type = 'USER'
+              AND status = 'ACTIVE'
+              AND wait_class <> 'Idle'
+            GROUP BY event, wait_class
+            ORDER BY COUNT(*) DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_long_operations(limit: int = 5) -> list[dict[str, Any]]:
+    """Operaciones largas en curso (V$SESSION_LONGOPS)."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT
+                sid,
+                username                AS usuario,
+                opname                  AS operacion,
+                ROUND(sofar * 100 / NULLIF(totalwork, 0), 1) AS pct_completado,
+                elapsed_seconds         AS segundos_transcurridos,
+                time_remaining          AS segundos_restantes
+            FROM v$session_longops
+            WHERE time_remaining > 0
+            ORDER BY elapsed_seconds DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_recent_ora_errors(hours: int = 1, limit: int = 10) -> list[dict[str, Any]]:
+    """Errores ORA- recientes del alert log (V$DIAG_ALERT_EXT)."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT
+                TO_CHAR(originating_timestamp, 'YYYY-MM-DD HH24:MI:SS') AS fecha,
+                SUBSTR(message_text, 1, 300)                            AS mensaje
+            FROM v$diag_alert_ext
+            WHERE originating_timestamp > SYSTIMESTAMP - NUMTODSINTERVAL(:horas, 'HOUR')
+              AND message_text LIKE '%ORA-%'
+            ORDER BY originating_timestamp DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"horas": hours, "limit": limit})

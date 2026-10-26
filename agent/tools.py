@@ -572,7 +572,24 @@ def analyze_awr_report(file_path: str = "docs/awr_example.html") -> str:
         return f"Informe AWR no encontrado: {Path(normalized_path).name}"
 
 
+# ── RF022 ────────────────────────────────────────────────────────────────────
+@tool
+def check_database_health(force_refresh: bool = False) -> str:
+    """
+    Revisión completa del estado de la BBDD en una sola llamada: CPU, bloqueos (con causa probable),
+    límites de conexiones, espacio (tablespaces/TEMP/UNDO), sesiones inactivas, errores ORA- recientes,
+    esperas y operaciones largas. Reutiliza la última revisión si es reciente (indica su hora).
+    USAR PRIMERO ante preguntas como "¿cómo está la base de datos?" o "veo problemas en las aplicaciones".
+    Parámetro:
+    - force_refresh: True solo si el usuario pide expresamente revisar de nuevo.
+    """
+    from health.checker import format_health, get_health
+
+    return format_health(get_health(force_refresh=bool(force_refresh)))
+
+
 ALL_TOOLS = [
+    check_database_health,
     get_cpu_usage,
     get_top_cpu_queries,
     get_top_cpu_sessions,

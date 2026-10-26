@@ -257,6 +257,31 @@ async def clear_history(response: Response, x_session_id: str | None = Header(de
     }
 
 
+@app.get("/api/health-history")
+async def health_history(limit: int = 20):
+    """Histórico de preguntas sobre el estado de la BBDD y lo que se devolvió en cada una."""
+    from health.store import HealthStore
+
+    return {"history": await run_in_threadpool(HealthStore().history, limit)}
+
+
+@app.post("/api/health-check")
+async def health_check_now(
+    response: Response,
+    force: bool = False,
+    x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+):
+    """Revisión de estado (reutiliza la caché si no ha caducado; force=true la ignora)."""
+    from health.checker import get_health
+
+    session_id = resolve_session(response, x_session_id)
+    try:
+        return await run_in_threadpool(get_health, session_id, force)
+    except Exception:
+        logger.exception("Error en la revisión de estado")
+        raise HTTPException(status_code=500, detail="No se pudo realizar la revisión de estado.")
+
+
 # Manejador de errores global
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

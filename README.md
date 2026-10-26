@@ -266,7 +266,23 @@ Notas importantes:
 
 ---
 
-## 9. Informes HTML
+## 9. Revisión de estado (RF022)
+
+`health/checker.py` ejecuta una revisión única sin LLM (CPU, bloqueos con causa probable, límites de
+conexiones, tablespaces/TEMP/UNDO, sesiones inactivas, errores ORA- del alert log, esperas y operaciones
+largas), aplica reglas de DBA y guarda el resultado en ficheros JSON Lines (`data/health/checks.jsonl` y
+`data/health/requests.jsonl`, ignorados por git; no se usa ninguna base de datos).
+
+- Caché: se reutiliza la última revisión durante `SIMBA_HEALTH_CACHE_MINUTES` (10 por defecto).
+- Histórico: cada pregunta queda registrada con su fecha, quién preguntó y la revisión devuelta.
+- API: `POST /api/health-check?force=true|false` y `GET /api/health-history?limit=20`.
+- Algunas comprobaciones requieren permisos (`DBA_TABLESPACE_USAGE_METRICS`, `V$DIAG_ALERT_EXT`); si
+  faltan, se marcan como "No disponible" sin abortar la revisión.
+- El bot nunca ejecuta `KILL SESSION`: solo sugiere acciones.
+
+---
+
+## 10. Informes HTML
 
 El generador de informes se encuentra en report/generator.py.
 
