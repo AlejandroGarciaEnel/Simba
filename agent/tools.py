@@ -581,7 +581,10 @@ def check_database_health(force_refresh: bool = False) -> str:
     esperas y operaciones largas. Reutiliza la última revisión si es reciente (indica su hora).
     USAR PRIMERO ante preguntas como "¿cómo está la base de datos?" o "veo problemas en las aplicaciones".
     Parámetro:
-    - force_refresh: True solo si el usuario pide expresamente revisar de nuevo.
+    - force_refresh: dejar SIEMPRE en False (valor por defecto). Poner True únicamente si el usuario
+      pide con palabras explícitas volver a revisar ("de nuevo", "otra vez", "actualiza", "refresca").
+      Decir que ve problemas o preguntar por el estado NO es motivo para forzar: la revisión en caché
+      tiene como máximo unos minutos y se muestra su hora.
     """
     from health.checker import format_health, get_health
 
