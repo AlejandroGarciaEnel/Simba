@@ -11,17 +11,18 @@ import signal
 import sys
 from typing import Optional
 
-import cx_Oracle
+import oracledb
 from dotenv import load_dotenv
 
 load_dotenv()
-_oracle_client_dir = os.environ.get("ORACLE_CLIENT_DIR", r"C:\oracle\instantclient_23_0")
-cx_Oracle.init_oracle_client(lib_dir=_oracle_client_dir)
+_oracle_client_dir = os.environ.get("ORACLE_CLIENT_DIR")
+if _oracle_client_dir:  # Modo Thick solo si se configura explícitamente; por defecto Thin
+    oracledb.init_oracle_client(lib_dir=_oracle_client_dir)
 
-_connection: Optional[cx_Oracle.Connection] = None
+_connection: Optional[oracledb.Connection] = None
 
 
-def get_connection() -> cx_Oracle.Connection:
+def get_connection() -> oracledb.Connection:
     """Devuelve la conexión activa, creándola si no existe."""
     global _connection
     if _connection is None:
@@ -29,15 +30,15 @@ def get_connection() -> cx_Oracle.Connection:
     return _connection
 
 
-def _create_connection() -> cx_Oracle.Connection:
+def _create_connection() -> oracledb.Connection:
     host = os.environ["DB_HOST"]
     port = int(os.environ.get("DB_PORT", "1521"))
     service = os.environ["DB_SERVICE"]
     user = os.environ["DB_USER"]
     password = os.environ["DB_PASSWORD"]
 
-    dsn = cx_Oracle.makedsn(host, port, service_name=service)
-    conn = cx_Oracle.connect(user=user, password=password, dsn=dsn)
+    dsn = oracledb.makedsn(host, port, service_name=service)
+    conn = oracledb.connect(user=user, password=password, dsn=dsn)
     # Modo solo lectura a nivel de transacción
     conn.autocommit = False
     return conn

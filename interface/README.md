@@ -10,9 +10,10 @@ Interfaz conversacional web estilo Gemini para el monitor de base de datos Oracl
 pip install -r ../requirements.txt
 ```
 
-Las nuevas dependencias requeridas:
+Dependencias del backend:
 - `fastapi>=0.100.0`
 - `uvicorn[standard]>=0.23.0`
+- `python-multipart>=0.0.9` (subida de informes AWR)
 
 ### 2. Iniciar el servidor backend
 
@@ -43,7 +44,8 @@ Abre tu navegador en: **http://localhost:8000**
 ✅ **Descarga automática de informes** — Genera HTML al solicitarlo  
 ✅ **3 reintentos de conexión** — Manejo automático de fallos BD  
 ✅ **Botón de reintento manual** — Intenta reconectar cuando falla  
-✅ **Historial por sesión** — localStorage (se pierde al cerrar navegador)  
+✅ **Historial por sesión** — aislado en el servidor por `X-Session-Id`; el frontend lo guarda en sessionStorage (se pierde al cerrar la pestaña)  
+✅ **Análisis de informes AWR** — arrastra un `.html` sobre el chat o usa el botón "Cargar informe AWR"  
 ✅ **Responsive** — Funciona en móvil, tablet y desktop  
 
 ---
@@ -87,12 +89,15 @@ Verifica el estado del servidor y conexión BD.
 {
     "status": "ok",
     "db_connected": true,
+    "llm_ready": true,
+    "db_error": null,
+    "llm_error": null,
     "message": "Servidor activo"
 }
 ```
 
 ### `POST /api/chat`
-Envía un mensaje y recibe respuesta del agente.
+Envía un mensaje y recibe respuesta del agente. El historial se aísla por sesión con la cabecera `X-Session-Id` (el servidor devuelve el id en la respuesta). Devuelve `503` si la BD o el agente LLM no están disponibles y `400` si el mensaje está vacío.
 
 **Request:**
 ```json
@@ -115,14 +120,15 @@ Envía un mensaje y recibe respuesta del agente.
 ```
 
 ### `POST /api/reset-connection`
-Intenta resetear la conexión con la BD (3 reintentos automáticos).
+Intenta resetear solo el componente que falle (BD y/o LLM) con 3 reintentos automáticos.
 
 **Response:**
 ```json
 {
     "success": true,
     "message": "Conexión establecida correctamente",
-    "db_connected": true
+    "db_connected": true,
+    "llm_ready": true
 }
 ```
 
@@ -144,10 +150,10 @@ Sube un informe AWR (RF021) como `multipart/form-data` en el campo `file`. Se us
 **Errores:** `400` extensión no válida, fichero vacío o no es un AWR; `413` supera `SIMBA_AWR_MAX_MB`.
 
 ### `GET /api/chat-history`
-Retorna el historial de chat del servidor.
+Retorna el historial de chat de la sesión (`X-Session-Id`).
 
 ### `POST /api/clear-history`
-Limpia el historial del servidor.
+Limpia el historial de la sesión (`X-Session-Id`).
 
 ---
 
@@ -162,10 +168,20 @@ DB_PORT=1521
 DB_USER=mon_user
 DB_PASSWORD=password
 DB_SERVICE=ORCLPDB1
+# Opcional: activa modo Thick de python-oracledb (por defecto, modo Thin)
+# ORACLE_CLIENT_DIR=C:\oracle\instantclient_23_0
 
-# OpenAI
+# LLM (openai o genaihub)
+LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
+# Para GenAI Hub: ver GENAIHUB_* en .env.example
+
+# Servidor
+SIMBA_HOST=127.0.0.1
+SIMBA_PORT=8000
+SIMBA_CORS_ALLOWED_ORIGINS=*
+SIMBA_DB_QUERY_TIMEOUT_MS=5000
 
 # Informes AWR subidos (RF021)
 SIMBA_AWR_MAX_MB=20
@@ -228,7 +244,7 @@ interface/
 
 ### "El agente no responde"
 
-- Verifica que OPENAI_API_KEY está configurada
+- Verifica OPENAI_API_KEY (o la configuración GENAIHUB_* según LLM_PROVIDER)
 - Comprueba conexión a Internet
 - Revisa la consola del navegador (F12)
 
@@ -242,7 +258,7 @@ interface/
 
 ## 📝 Notas
 
-- **Historial**: Se guarda en `localStorage` (sesión actual solamente)
+- **Historial**: Se guarda en `sessionStorage` (solo la pestaña actual); el tema oscuro/claro usa `localStorage`
 - **Persistencia**: Para guardar entre sesiones, descarga regularmente tus informes
 - **Seguridad**: La API valida nombres de archivo antes de descargar
 - **Performance**: El frontend es ultraligero (sin frameworks)

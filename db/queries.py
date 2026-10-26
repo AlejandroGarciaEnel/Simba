@@ -15,7 +15,7 @@ from db.connection import get_connection
 
 logger = logging.getLogger("db.queries")
 
-# Timeout por query en milisegundos (cx_Oracle Cursor.callTimeout); configurable
+# Timeout por query en milisegundos (python-oracledb Cursor.callTimeout); configurable
 # vía SIMBA_DB_QUERY_TIMEOUT_MS para no bloquear el agente ante una BD lenta/colgada.
 QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
 

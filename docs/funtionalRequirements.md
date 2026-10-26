@@ -5,11 +5,12 @@
 SIMBA es un agente conversacional orientado a la monitorización operativa de bases de datos Oracle. Su finalidad es permitir a un administrador o responsable de soporte consultar el estado de la base de datos en lenguaje natural sin ejecutar manualmente SQL complejos.
 
 El sistema combina:
-- conexión Oracle con cx_Oracle
+- conexión Oracle con python-oracledb
 - herramientas de consulta de rendimiento
 - un modelo LLM para interpretar peticiones naturales
 - un backend REST para interacción web
 - generación de informes HTML para análisis posterior
+- análisis de informes AWR subidos por el usuario
 
 ---
 
@@ -28,6 +29,7 @@ El sistema debe permitir:
 - detectar patrones de pooling
 - inspeccionar bloqueos entre tablas
 - generar un informe HTML en la carpeta reports/
+- analizar informes AWR (RF021) cargados desde la web o desde la carpeta awr/
 
 ---
 
@@ -51,23 +53,31 @@ El sistema debe permitir:
 - `db/connection.py`
 - gestiona la conexión singleton a Oracle
 - usa variables de entorno como DB_HOST, DB_PORT, DB_SERVICE, DB_USER y DB_PASSWORD
-- inicializa instant client con ORACLE_CLIENT_DIR
+- inicializa instant client (modo Thick) solo si ORACLE_CLIENT_DIR está definida; por defecto modo Thin
+- el modo Thin requiere Oracle Database 12.1+ y no soporta verificadores de contraseña antiguos (10G, error DPY-3015); en ese caso hay que usar modo Thick (Instant Client 23ai, 64 bits) o regenerar la contraseña del usuario
 
 ### 4.2 Capa de consultas
 - `db/queries.py`
 - define una función por requisito funcional
-- aplica timeout por query usando SIMBA_DB_QUERY_TIMEOUT_MS
+- aplica timeout por query usando SIMBA_DB_QUERY_TIMEOUT_MS (Cursor.callTimeout de python-oracledb, 5000 ms por defecto)
 - protege resultados con límite defensivo HARD_ROW_LIMIT = 500
+- registra cada query (operación, duración y filas) en el logger `db.queries`
 
 ### 4.3 Capa de herramientas del agente
 - `agent/tools.py`
-- expone cada RF como herramienta LangChain
+- expone cada RF como herramienta LangChain (incluida `analyze_awr_report`, RF021)
 - devuelve resultados en formato tabular legible para el LLM
+
+### 4.3.1 Análisis AWR
+- `report/awr_analyzer.py`
+- analiza informes AWR en HTML y genera el resumen ejecutivo
+- solo acepta `docs/awr_example.html` o ficheros .html/.htm dentro de `awr/`
 
 ### 4.4 Capa de orquestación LLM
 - `agent/agent.py`
 - construye el agente con ChatOpenAI
-- soporta OpenAI y GenAI Hub
+- soporta OpenAI (OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL) y GenAI Hub (GENAIHUB_*), según LLM_PROVIDER
+- SSL_VERIFY permite desactivar la verificación TLS (solo para entornos corporativos controlados)
 - define un prompt con la capacidad operativa del monitor
 
 ### 4.5 API y frontend
@@ -79,9 +89,12 @@ El sistema debe permitir:
 La API gestiona:
 - chat
 - historial por sesión
-- salud del sistema
-- reinicio de conexión
+- salud del sistema (estado de BD y LLM por separado)
+- reinicio de conexión (reintenta solo el componente que falla)
 - descarga de informes HTML
+- subida y análisis de informes AWR (`POST /api/awr/upload`)
+
+Endpoints: `GET /api/health`, `POST /api/chat`, `POST /api/reset-connection`, `GET /api/download-report/{filename}`, `POST /api/awr/upload`, `GET /api/chat-history` y `POST /api/clear-history`. El historial se aísla por sesión mediante la cabecera `X-Session-Id`.
 
 ---
 

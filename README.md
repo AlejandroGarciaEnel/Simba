@@ -2,12 +2,13 @@
 
 SIMBA es un agente conversacional para monitorización de bases de datos Oracle. El proyecto combina:
 
-- acceso directo a Oracle con cx_Oracle
+- acceso directo a Oracle con python-oracledb
 - un agente LLM con LangChain
 - herramientas específicas para consultas de rendimiento y bloqueo
 - una API REST en FastAPI
 - un frontend web ligero en HTML/CSS/JavaScript
 - generación de informes HTML en la carpeta reports/
+- análisis de informes AWR (RF021) subidos desde la web
 
 El flujo principal es:
 1. conectar a la base de datos Oracle
@@ -20,15 +21,16 @@ El flujo principal es:
 
 ## 1. Requisitos previos
 
-- Python 3.10 o superior
-- Oracle Instant Client 64-bit instalado y accesible
+- Python 3.10 o superior (recomendado 3.12; versiones muy recientes como 3.15 pueden no tener wheels para algunas dependencias y exigir compilador C++)
+- Oracle Instant Client 23ai 64-bit, paquete Basic (solo si usas modo Thick)
 - Credenciales válidas de conexión a Oracle
 - Una clave API de OpenAI o configuración de GenAI Hub
 - Acceso a una base de datos Oracle con permisos de lectura para consultas de monitorización
 
 Importante:
-- El proyecto usa cx_Oracle.
-- La ubicación del client Oracle se toma de la variable ORACLE_CLIENT_DIR.
+- El proyecto usa python-oracledb (modo Thin por defecto, requiere Oracle Database 12.1+).
+- Opcional: para modo Thick, define ORACLE_CLIENT_DIR con la ruta de Oracle Instant Client.
+- Si la conexión falla con DPY-3015 (verificador de contraseña 0x939), el usuario tiene un verificador 10G que Thin no soporta: usa modo Thick o pide al DBA que regenere la contraseña.
 - El archivo .env debe mantenerse fuera del repositorio.
 
 ---
@@ -63,8 +65,8 @@ OPENAI_MODEL=gpt-4o
 # GENAIHUB_CLIENT_SECRET=...
 # SSL_VERIFY=false
 
-# --- Instant Client ---
-ORACLE_CLIENT_DIR=C:\oracle\instantclient_23_0
+# --- Instant Client (opcional, activa modo Thick; si se omite, modo Thin) ---
+# ORACLE_CLIENT_DIR=C:\oracle\instantclient_23_0
 
 # --- API FastAPI ---
 SIMBA_CORS_ALLOWED_ORIGINS=*
@@ -73,12 +75,20 @@ SIMBA_PORT=8000
 
 # --- Protección de consultas ---
 SIMBA_DB_QUERY_TIMEOUT_MS=5000
+
+# --- Informes AWR subidos (RF021) ---
+SIMBA_AWR_MAX_MB=20
+SIMBA_AWR_MAX_FILES=50
+
+# --- Informe HTML (RF006): esquema para el top de tablas ---
+REPORT_OWNER=ENET
 ```
 
 Notas:
 - El valor por defecto de SIMBA_CORS_ALLOWED_ORIGINS es "*" para uso local.
 - No se recomienda dejarlo abierto si la API va a quedar expuesta fuera de un entorno local o privado.
 - El backend y el frontend tienen una intención de uso local, no productivo por defecto.
+- GENAIHUB_SCOPE es obligatorio con GenAI Hub (endpoint OAuth v2.0).
 
 ---
 
@@ -88,16 +98,18 @@ Desde la raíz del proyecto:
 
 ```powershell
 cd c:\github\dbAgent
-python -m venv .venv
-.\venv\Scripts\Activate.ps1
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+Si PowerShell bloquea la activación del entorno, ejecuta antes `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, o usa directamente `.\.venv\Scripts\python.exe`.
+
 Si ya existe el entorno virtual:
 
 ```powershell
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -105,12 +117,13 @@ Dependencias principales:
 
 - langchain
 - langchain-openai
-- cx_Oracle
+- oracledb
 - python-dotenv
 - jinja2
 - tabulate
 - fastapi
 - uvicorn
+- python-multipart
 
 ---
 
@@ -120,7 +133,7 @@ Desde la raíz del proyecto:
 
 ```powershell
 cd c:\github\dbAgent
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python main.py
 ```
 
@@ -145,7 +158,7 @@ Desde la raíz del proyecto:
 
 ```powershell
 cd c:\github\dbAgent
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m uvicorn interface.backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -153,7 +166,7 @@ También se puede arrancar directamente:
 
 ```powershell
 cd c:\github\dbAgent
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python interface\backend\main.py
 ```
 
@@ -182,11 +195,14 @@ dbAgent/
 │   ├── __init__.py
 │   ├── agent.py
 │   └── tools.py
+├── awr/
+│   └── (informes AWR subidos desde la web)
 ├── db/
 │   ├── __init__.py
 │   ├── connection.py
 │   └── queries.py
 ├── docs/
+│   ├── awr_example.html
 │   ├── example.html
 │   ├── funtionalRequirements.md
 │   ├── GenAIHub.md
@@ -204,6 +220,7 @@ dbAgent/
 │       └── styles.css
 ├── report/
 │   ├── __init__.py
+│   ├── awr_analyzer.py
 │   ├── generator.py
 │   └── template.html
 ├── reports/
@@ -241,6 +258,7 @@ El agente expone una serie de herramientas de monitorización Oracle, entre ella
 - métricas de sysmetric
 - total de sesiones conectadas
 - generación de informe HTML
+- análisis de informes AWR (RF021)
 
 La lista completa está en agent/tools.py.
 
@@ -250,10 +268,11 @@ La lista completa está en agent/tools.py.
 
 El backend FastAPI expone endpoints como:
 
-- GET /api/health
+- GET /api/health (estado de BD y LLM por separado)
 - POST /api/chat
 - POST /api/reset-connection
 - GET /api/download-report/{filename}
+- POST /api/awr/upload
 - GET /api/chat-history
 - POST /api/clear-history
 
@@ -286,6 +305,18 @@ El nombre incluye día, mes, año, hora y minutos.
 
 ---
 
+## 9.1 Informes AWR (RF021)
+
+El análisis está en report/awr_analyzer.py y se expone como herramienta del agente (`analyze_awr_report`) y como endpoint `POST /api/awr/upload`.
+
+- Desde la web: arrastra el .html sobre el chat o usa el botón "Cargar informe AWR". No requiere BD ni LLM.
+- Los ficheros se guardan en `awr/` con nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y nunca se sirven de vuelta al navegador.
+- Validaciones: extensión .html/.htm, fichero no vacío, cabecera `WORKLOAD REPOSITORY` y tamaño máximo `SIMBA_AWR_MAX_MB` (20 MB por defecto).
+- Se conservan como máximo `SIMBA_AWR_MAX_FILES` informes (50 por defecto); se eliminan los más antiguos.
+- La herramienta solo analiza `docs/awr_example.html` (valor por defecto) o ficheros dentro de `awr/`.
+
+---
+
 ## 10. Pruebas automatizadas
 
 Se usa pytest con mocks para simular:
@@ -315,9 +346,19 @@ No hace falta Oracle real ni un LLM real para ejecutar la suite principal.
 ## 11. Solución de problemas comunes
 
 ### Error DPI-1047
-- Revisa que ORACLE_CLIENT_DIR apunte a un Instant Client válido
+- Si usas modo Thick, revisa que ORACLE_CLIENT_DIR apunte a un Instant Client válido
 - Usa una versión 64-bit correcta
 - Comprueba que el cliente esté presente en la ruta indicada
+- Instala el Visual C++ Redistributable x64 si la DLL no carga
+
+### Error DPY-3015 (password verifier type 0x939)
+- El usuario Oracle tiene un verificador de contraseña 10G que el modo Thin no soporta
+- Solución rápida: define ORACLE_CLIENT_DIR (modo Thick)
+- Solución definitiva: pide al DBA que regenere la contraseña del usuario y permita verificadores 11G/12C
+
+### Error ModuleNotFoundError / fallo al compilar dependencias
+- Instala las dependencias con el mismo Python que ejecuta la aplicación (idealmente el del .venv)
+- Si pip intenta compilar paquetes (p. ej. zstandard) y falla, usa Python 3.12 o 3.13
 
 ### Error de conexión a base de datos
 - Revisa DB_HOST, DB_PORT, DB_SERVICE, DB_USER, DB_PASSWORD
@@ -346,6 +387,7 @@ Riesgos actuales documentados en código:
 - uso local del backend y del frontend
 - exposición de errores internos en endpoints de estado
 - conexión Oracle y agente LLM con reintentos independientes
+- subida de informes AWR sin autenticación (mitigada con límite de tamaño, validación de contenido, nombre generado en servidor y rotación de ficheros)
 
 Antes de cualquier despliegue real, sería necesario:
 - restringir CORS a orígenes concretos
@@ -373,4 +415,5 @@ La parte más relevante del sistema está en:
 - agent/agent.py para la configuración del LLM
 - interface/backend/api_handlers.py para chat y sesiones
 - report/generator.py para reportes HTML
+- report/awr_analyzer.py para el análisis de informes AWR
 
