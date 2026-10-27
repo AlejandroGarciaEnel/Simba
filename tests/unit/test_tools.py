@@ -18,12 +18,14 @@ def test_get_top_cpu_queries_tool_renders_table(mocker):
         tools.q,
         "get_top_cpu_queries",
         return_value=[
-            {"USUARIO": "SYS", "EJECUCIONES": 10, "PCT_CPU": 55.5, "CPU_TIME": 1234, "SQL": "SELECT 1"}
+            {"SQL_ID": "abc123xyz", "USUARIO": "SYS", "EJECUCIONES": 10, "PCT_CPU": 55.5, "CPU_TIME": 1234, "SQL": "SELECT 1"}
         ],
     )
 
     result = tools.get_top_cpu_queries.invoke({"limit": 5})
 
+    assert "SQL ID" in result
+    assert "abc123xyz" in result
     assert "SYS" in result
     assert "SELECT 1" in result
 

@@ -36,9 +36,9 @@ def get_top_cpu_queries(limit: int = 5) -> str:
     rows = q.get_top_cpu_queries(limit)
     if not rows:
         return "No se encontraron queries con consumo de CPU significativo."
-    headers = ["Usuario", "Ejecuciones", "% CPU", "CPU Time", "SQL"]
+    headers = ["SQL ID", "Usuario", "Ejecuciones", "% CPU", "CPU Time", "SQL"]
     table = [
-        [r.get("USUARIO"), r.get("EJECUCIONES"), r.get("PCT_CPU"),
+        [r.get("SQL_ID"), r.get("USUARIO"), r.get("EJECUCIONES"), r.get("PCT_CPU"),
          r.get("CPU_TIME"), str(r.get("SQL") or "")[:120]]
         for r in rows
     ]

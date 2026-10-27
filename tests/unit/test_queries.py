@@ -25,14 +25,15 @@ def test_get_cpu_usage_defaults_to_zero_when_null(mock_db_connection, fake_curso
 def test_get_top_cpu_queries_maps_columns(mock_db_connection, fake_cursor):
     set_query_result(
         fake_cursor,
-        ["USUARIO", "EJECUCIONES", "PCT_CPU", "CPU_TIME", "SQL"],
-        [("SYS", 10, 55.5, 1234, "SELECT 1 FROM DUAL")],
+        ["SQL_ID", "USUARIO", "EJECUCIONES", "PCT_CPU", "CPU_TIME", "SQL"],
+        [("abc123xyz", "SYS", 10, 55.5, 1234, "SELECT 1 FROM DUAL")],
     )
 
     rows = q.get_top_cpu_queries(limit=5)
 
     assert rows == [
         {
+            "SQL_ID": "abc123xyz",
             "USUARIO": "SYS",
             "EJECUCIONES": 10,
             "PCT_CPU": 55.5,
@@ -43,7 +44,7 @@ def test_get_top_cpu_queries_maps_columns(mock_db_connection, fake_cursor):
 
 
 def test_get_top_cpu_queries_empty_result(mock_db_connection, fake_cursor):
-    set_query_result(fake_cursor, ["USUARIO", "EJECUCIONES", "PCT_CPU", "CPU_TIME", "SQL"], [])
+    set_query_result(fake_cursor, ["SQL_ID", "USUARIO", "EJECUCIONES", "PCT_CPU", "CPU_TIME", "SQL"], [])
 
     rows = q.get_top_cpu_queries()
 

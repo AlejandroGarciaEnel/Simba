@@ -121,7 +121,7 @@ Endpoints: `GET /api/health`, `POST /api/chat`, `POST /api/reset-connection`, `G
 ### RF002 — Top SQLs por CPU
 - **Descripción**: muestra las consultas con mayor consumo de CPU.
 - **Parámetro**: limit (por defecto 5)
-- **Resultado**: usuario, ejecuciones, porcentaje de CPU, cpu_time y SQL
+- **Resultado**: SQL ID, usuario, ejecuciones, porcentaje de CPU, cpu_time y SQL (el SQL ID se puede usar directamente como parámetro de RF010)
 
 ### RF003 — Top sesiones por CPU
 - **Descripción**: muestra las sesiones activas con mayor consumo de CPU.

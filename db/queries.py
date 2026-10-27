@@ -77,6 +77,7 @@ def get_top_cpu_queries(limit: int = 5) -> list[dict[str, Any]]:
         SELECT *
         FROM (
             SELECT
+                q.sql_id                                            AS sql_id,
                 s.username                                          AS usuario,
                 q.executions                                        AS ejecuciones,
                 ROUND(q.cpu_time * 100.0 /
