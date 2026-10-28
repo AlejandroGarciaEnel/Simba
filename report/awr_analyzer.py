@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from html import unescape
 from pathlib import Path
 
@@ -65,8 +66,127 @@ def _extract_numbers(pattern: str, text: str) -> list[float]:
     return values
 
 
-def summarize_awr_report(file_path: str | Path) -> str:
-    """Analiza un informe AWR HTML y devuelve un resumen amigable para usuarios no técnicos."""
+_SQL_ID_PATTERN = re.compile(r"[a-z0-9]{13}")
+_NUMBER_PATTERN = re.compile(r"[0-9][0-9,]*(?:\.\d+)?")
+MAX_TOP_SQL = 5
+
+
+@dataclass(frozen=True)
+class AwrSql:
+    sql_id: str
+    elapsed_s: str
+    execs: str
+    pct_db_time: str
+
+
+@dataclass(frozen=True)
+class FollowupArea:
+    """Área afectada y acciones de seguimiento (nombres de herramientas de la lista blanca)."""
+
+    keywords: tuple[str, ...]
+    label: str
+    rf: str
+    actions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AwrAnalysis:
+    db_name: str
+    snapshot: str
+    instance_count: str
+    host_count: str
+    db_time: str
+    elapsed: str
+    avg_cpu_busy: float
+    findings: tuple[str, ...]
+    top_sql: tuple[AwrSql, ...] = ()
+
+    @property
+    def areas(self) -> list[FollowupArea]:
+        return _match_areas(self.findings)
+
+
+# Los hallazgos del informe (no confiable) solo seleccionan áreas; las acciones son fijas.
+_FINDING_AREAS: list[FollowupArea] = [
+    FollowupArea(("sql",), "ejecución de sentencias SQL y PL/SQL", "RF002 y RF010", ()),
+    FollowupArea(("cpu",), "consumo de CPU", "RF001 y RF003", ("get_cpu_usage", "get_top_cpu_sessions")),
+    FollowupArea(
+        ("lock", "enqueue", "contention", "latch", "mutex"),
+        "bloqueos y contención",
+        "RF005 y RF017",
+        ("get_blocking_sessions", "get_table_lock_detection"),
+    ),
+    FollowupArea(
+        ("i/o", "commit", "log file", "wait", "undersized redo"),
+        "latencia de E/S y esperas",
+        "RF015",
+        ("get_latency_wait_metrics",),
+    ),
+    FollowupArea(
+        ("session", "connect", "login", "logon"),
+        "gestión de sesiones y conexiones",
+        "RF014 y RF020",
+        ("detect_pooling", "get_total_sessions"),
+    ),
+    FollowupArea(
+        ("memory", "sga", "pga", "buffer cache", "shared pool"),
+        "memoria",
+        "RF008 y RF008.1",
+        ("get_metrics", "get_sga_info"),
+    ),
+]
+
+# Seguimiento cuando el informe no permite asociar los hallazgos a un área concreta
+GENERIC_FOLLOWUP = FollowupArea(
+    (), "estado general de la base de datos", "RF007, RF008 y RF015",
+    ("get_database_summary", "get_metrics", "get_latency_wait_metrics"),
+)
+
+
+def _match_areas(findings: tuple[str, ...] | list[str]) -> list[FollowupArea]:
+    areas: list[FollowupArea] = []
+    for finding in findings:
+        lowered = finding.lower()
+        for area in _FINDING_AREAS:
+            if any(keyword in lowered for keyword in area.keywords) and area not in areas:
+                areas.append(area)
+    return areas
+
+
+def _extract_top_sql(text: str, limit: int = MAX_TOP_SQL) -> tuple[AwrSql, ...]:
+    section = re.search(
+        r"<h3[^>]*>\s*SQL ordered by Elapsed Time[^<]*</h3>.*?</table>", text, re.IGNORECASE | re.DOTALL
+    )
+    if not section:
+        return ()
+
+    def cell(row: str, header: str) -> str:
+        match = re.search(rf'headers="{header}"[^>]*>([^<]*)<', row, re.IGNORECASE)
+        value = _clean_text(match.group(1)) if match else ""
+        return value if _NUMBER_PATTERN.fullmatch(value) else "N/D"
+
+    result: list[AwrSql] = []
+    for row in re.findall(r"<tr>(.*?)</tr>", section.group(0), re.IGNORECASE | re.DOTALL):
+        id_match = re.search(r'<td[^>]*scope="row"[^>]*>\s*<a[^>]*>([^<]*)</a>', row, re.IGNORECASE)
+        # el SQL ID se usará como parámetro de una consulta: solo se acepta el formato Oracle
+        sql_id = _clean_text(id_match.group(1)) if id_match else ""
+        if not _SQL_ID_PATTERN.fullmatch(sql_id) or any(item.sql_id == sql_id for item in result):
+            continue
+        result.append(
+            AwrSql(
+                sql_id=sql_id,
+                elapsed_s=cell(row, r"Total Elapsed\(s\)"),
+                execs=cell(row, r"Total Execs"),
+                pct_db_time=cell(row, r"PercentageofTotal DBtime"),
+            )
+        )
+        if len(result) >= limit:
+            break
+    return tuple(result)
+
+
+def parse_awr_report(file_path: str | Path) -> AwrAnalysis:
+    """Extrae del informe AWR HTML los datos estructurados que usan el resumen y el seguimiento."""
     text = _read_text(file_path)
     title_match = re.search(r"<title>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
     db_name = _clean_text(title_match.group(1)) if title_match else "BD desconocida"
@@ -128,31 +248,43 @@ def summarize_awr_report(file_path: str | Path) -> str:
             if label and label not in findings:
                 findings.append(label)
 
+    return AwrAnalysis(
+        db_name=db_name,
+        snapshot=snapshot,
+        instance_count=instance_count,
+        host_count=host_count,
+        db_time=db_time,
+        elapsed=elapsed,
+        avg_cpu_busy=avg_cpu_busy,
+        findings=tuple(findings),
+        top_sql=_extract_top_sql(text),
+    )
+
+
+def render_summary(analysis: AwrAnalysis) -> str:
+    findings = list(analysis.findings)
     if not findings:
         findings_line = "Hallazgos principales: el informe no incluye hallazgos ADDM."
     else:
         findings_line = "Hallazgos principales: " + ", ".join(findings[:3]) + "."
 
     summary_lines = [
-        f"Resumen AWR para {db_name}.",
-        f"Snapshot: {snapshot} | {instance_count} instancias | {host_count} hosts.",
-        f"Tiempo DB: {db_time} min | Tiempo transcurrido: {elapsed} min.",
-        f"CPU ocupada media observada: {avg_cpu_busy:.2f}%.",
+        f"Resumen AWR para {analysis.db_name}.",
+        f"Snapshot: {analysis.snapshot} | {analysis.instance_count} instancias | {analysis.host_count} hosts.",
+        f"Tiempo DB: {analysis.db_time} min | Tiempo transcurrido: {analysis.elapsed} min.",
+        f"CPU ocupada media observada: {analysis.avg_cpu_busy:.2f}%.",
         findings_line,
-        _build_conclusion(findings),
     ]
+    if analysis.top_sql:
+        top = ", ".join(f"{item.sql_id} ({item.elapsed_s} s)" for item in analysis.top_sql)
+        summary_lines.append(f"SQL con mayor tiempo en el informe: {top}.")
+    summary_lines.append(_build_conclusion(findings))
     return "\n".join(summary_lines)
 
 
-# (palabras clave del hallazgo ADDM, área afectada, RF para contrastar en vivo)
-_FINDING_AREAS: list[tuple[tuple[str, ...], str, str]] = [
-    (("sql",), "ejecución de sentencias SQL y PL/SQL", "RF002 y RF010"),
-    (("cpu",), "consumo de CPU", "RF001 y RF003"),
-    (("lock", "enqueue", "contention", "latch", "mutex"), "bloqueos y contención", "RF005 y RF017"),
-    (("i/o", "commit", "log file", "wait", "undersized redo"), "latencia de E/S y esperas", "RF015"),
-    (("session", "connect", "login", "logon"), "gestión de sesiones y conexiones", "RF014 y RF020"),
-    (("memory", "sga", "pga", "buffer cache", "shared pool"), "memoria", "RF008 y RF008.1"),
-]
+def summarize_awr_report(file_path: str | Path) -> str:
+    """Analiza un informe AWR HTML y devuelve un resumen amigable para usuarios no técnicos."""
+    return render_summary(parse_awr_report(file_path))
 
 
 def _build_conclusion(findings: list[str]) -> str:
@@ -162,14 +294,9 @@ def _build_conclusion(findings: list[str]) -> str:
             "Para revisar el estado en vivo puedes usar RF007, RF008 y RF015."
         )
 
-    areas: list[str] = []
-    rfs: list[str] = []
-    for finding in findings:
-        lowered = finding.lower()
-        for keywords, area, rf in _FINDING_AREAS:
-            if any(keyword in lowered for keyword in keywords) and area not in areas:
-                areas.append(area)
-                rfs.append(rf)
+    matched = _match_areas(findings)
+    areas = [area.label for area in matched]
+    rfs = [area.rf for area in matched]
 
     if not areas:
         return (
@@ -190,7 +317,17 @@ def analyze_awr_report(file_path: str | Path) -> str:
     return summarize_awr_report(file_path)
 
 
-__all__ = ["summarize_awr_report", "analyze_awr_report"]
+__all__ = [
+    "AwrAnalysis",
+    "AwrSql",
+    "FollowupArea",
+    "GENERIC_FOLLOWUP",
+    "analyze_awr_report",
+    "parse_awr_report",
+    "render_summary",
+    "resolve_awr_path",
+    "summarize_awr_report",
+]
 
 
 if __name__ == "__main__":

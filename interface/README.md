@@ -136,14 +136,16 @@ Intenta resetear solo el componente que falle (BD y/o LLM) con 3 reintentos auto
 Descarga un informe HTML generado.
 
 ### `POST /api/awr/upload`
-Sube un informe AWR (RF021) como `multipart/form-data` en el campo `file`. Se usa al arrastrar el `.html` sobre el chat o con el botón "Cargar informe AWR". El fichero se guarda en `./awr` con un nombre generado por el servidor y se devuelve el resumen. No requiere BD ni LLM.
+Sube un informe AWR (RF021) como `multipart/form-data` en el campo `file`. Se usa al arrastrar el `.html` sobre el chat o con el botón "Cargar informe AWR". El fichero se guarda en `./awr` con un nombre generado por el servidor y se devuelve el resumen. El resumen no requiere BD ni LLM; si la BD está conectada y `SIMBA_AWR_FOLLOWUP` no es `false`, se ejecuta además el seguimiento en vivo y se añade al resumen.
 
 **Response 200:**
 ```json
 {
   "success": true,
   "filename": "awr_30-09-2026_10-15-02_ab12cd34.html",
-  "message": "Resumen AWR para ..."
+  "message": "Resumen AWR para ...\n\n=== Contraste en vivo ...",
+  "summary": "Resumen AWR para ...",
+  "followup": "=== Contraste en vivo ... (vacío si no hay BD)"
 }
 ```
 
@@ -186,6 +188,8 @@ SIMBA_DB_QUERY_TIMEOUT_MS=5000
 # Informes AWR subidos (RF021)
 SIMBA_AWR_MAX_MB=20
 SIMBA_AWR_MAX_FILES=50
+SIMBA_AWR_FOLLOWUP=true
+SIMBA_AWR_FOLLOWUP_BUDGET_S=30
 ```
 
 ---

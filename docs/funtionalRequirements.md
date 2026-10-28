@@ -70,8 +70,10 @@ El sistema debe permitir:
 
 ### 4.3.1 Análisis AWR
 - `report/awr_analyzer.py`
-- analiza informes AWR en HTML y genera el resumen ejecutivo
+- analiza informes AWR en HTML y genera el resumen ejecutivo (hallazgos ADDM, áreas afectadas y top SQL por tiempo transcurrido)
 - solo acepta `docs/awr_example.html` o ficheros .html/.htm dentro de `awr/`
+- `report/awr_followup.py`
+- tras el resumen ejecuta el seguimiento en vivo (consultas de solo lectura de una lista blanca asociadas a los hallazgos), compara los SQL IDs del AWR con RF002/RF010
 
 ### 4.4 Capa de orquestación LLM
 - `agent/agent.py`
@@ -261,11 +263,12 @@ Endpoints: `GET /api/health`, `POST /api/chat`, `POST /api/reset-connection`, `G
 - **Resultado**: número total de sesiones, además de activas e inactivas > 30 minutos
 
 ### RF021 — Análisis de informe AWR
-- **Descripción**: analiza un informe HTML de AWR y devuelve un resumen ejecutivo con base de datos, instantáneas, instancias, hallazgos de ADDM y recomendaciones de seguimiento.
+- **Descripción**: analiza un informe HTML de AWR y devuelve un resumen ejecutivo con base de datos, instantáneas, instancias, hallazgos de ADDM y SQL con mayor tiempo, y **ejecuta a continuación las recomendaciones de seguimiento en la BD activa** (contraste en vivo).
 - **Parámetro**: file_path (nombre de un informe de la carpeta awr/ o docs/awr_example.html, valor por defecto). Cualquier otra ruta se rechaza.
-- **Carga desde la web**: el usuario arrastra y suelta el .html sobre el chat (o usa el botón "Cargar informe AWR"). El fichero se envía a `POST /api/awr/upload` (multipart, campo `file`), se guarda en `./awr` con un nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y se analiza al momento, sin necesitar BD ni LLM. El resumen se añade al historial de la sesión para poder hacer preguntas de seguimiento.
+- **Seguimiento automático**: cada hallazgo se asocia a un área y esta a un conjunto fijo de consultas de solo lectura: SQL → comparación de los SQL IDs del AWR con el top de CPU actual (RF002) y las sesiones activas (RF010); CPU → RF001 y RF003; bloqueos/contención → RF005 y RF017; E/S y esperas → RF015; sesiones/conexiones → RF014 y RF020; memoria → RF008 y RF008.1; sin hallazgos asociables → RF007, RF008 y RF015. Las acciones salen de una lista blanca: el contenido del AWR nunca se ejecuta ni se pasa como argumento (los SQL IDs deben cumplir `[a-z0-9]{13}`). Cada acción se aísla (un fallo parcial no cancela el resto) y el conjunto está limitado a 12 consultas y a `SIMBA_AWR_FOLLOWUP_BUDGET_S` segundos (30 por defecto). Sin conexión a BD se devuelve solo el resumen con un aviso.
+- **Carga desde la web**: el usuario arrastra y suelta el .html sobre el chat (o usa el botón "Cargar informe AWR"). El fichero se envía a `POST /api/awr/upload` (multipart, campo `file`), se guarda en `./awr` con un nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y se analiza al momento sin necesitar LLM; la BD es opcional: con BD conectada se ejecuta el seguimiento, que puede desactivarse con `SIMBA_AWR_FOLLOWUP=false`. La respuesta incluye `summary` y `followup`. El resultado completo se añade al historial de la sesión para poder hacer preguntas de seguimiento.
 - **Validaciones**: extensión .html/.htm, fichero no vacío, contenido con la cabecera `WORKLOAD REPOSITORY`, tamaño máximo `SIMBA_AWR_MAX_MB` (20 MB por defecto). Se conservan como máximo `SIMBA_AWR_MAX_FILES` informes (50 por defecto), eliminando los más antiguos.
-- **Resultado**: texto resumido, legible para un usuario no experto, con la guía de qué RF de monitorización en vivo puede usar para contrastar la causa real
+- **Resultado**: texto resumido, legible para un usuario no experto, seguido del bloque "Contraste en vivo" con las tablas de los RF ejecutados y una conclusión que indica si el problema del AWR persiste en la BD
 
 ---
 
@@ -293,6 +296,7 @@ El proyecto tiene un enfoque local y no productivo por defecto.
 - Gestión independiente de reintentos para conexión Oracle y agente LLM
 - Timeout de conexión a nivel de query con límite defensivo de 500 filas
 - Subida de informes AWR sin autenticación: con CORS abierto, cualquier web abierta en el navegador podría enviar ficheros al servidor local (mitigado con límite de tamaño, validación de contenido, nombre generado en servidor y rotación de ficheros)
+- El seguimiento AWR de la subida web consulta la BD en vivo y devuelve sus resultados sin autenticación (mitigado con lista blanca de consultas de solo lectura, timeout por query, límite de consultas y de tiempo, y el interruptor `SIMBA_AWR_FOLLOWUP=false`)
 
 **Recomendaciones antes de exposición real**:
 - cerrar CORS a orígenes concretos

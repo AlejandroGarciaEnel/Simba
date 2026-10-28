@@ -199,7 +199,7 @@ async function uploadAwrReport(file) {
         addMessageToUI("assistant", data.message);
         chatHistory.push({ role: "assistant", content: data.message });
         hideErrorBanner();
-        showNotification("✅ Informe AWR guardado y analizado");
+        showNotification(data.followup ? "✅ Informe AWR analizado y contrastado con la BD" : "✅ Informe AWR guardado y analizado");
     } catch (error) {
         console.error("Error subiendo AWR:", error);
         showErrorBanner(`No se pudo analizar el informe AWR: ${error.message}`, false);

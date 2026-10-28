@@ -202,6 +202,37 @@ def test_awr_upload_works_without_database(api_client, awr_dir):
     )
 
     assert response.status_code == 200
+    body = response.json()
+    assert body["followup"] == ""
+
+
+def test_awr_upload_runs_followup(api_client, awr_dir, monkeypatch):
+    monkeypatch.setattr("report.awr_followup.get_connection", lambda: object())
+    monkeypatch.setattr("db.queries.get_database_summary", lambda: [])
+    monkeypatch.setattr("db.queries.get_metrics", lambda: [])
+    monkeypatch.setattr("db.queries.get_latency_wait_metrics", lambda: [])
+
+    response = api_client.post("/api/awr/upload", files={"file": ("informe.html", AWR_SAMPLE, "text/html")})
+
+    body = response.json()
+    assert response.status_code == 200
+    assert "Contraste en vivo" in body["followup"]
+    assert body["message"] == f"{body['summary']}\n\n{body['followup']}"
+    assert "report" not in body
+
+
+def test_awr_upload_followup_can_be_disabled(api_client, awr_dir, monkeypatch):
+    monkeypatch.setattr("report.awr_followup.get_connection", lambda: object())
+    monkeypatch.setenv("SIMBA_AWR_FOLLOWUP", "false")
+
+    response = api_client.post("/api/awr/upload", files={"file": ("informe.html", AWR_SAMPLE, "text/html")})
+
+    assert response.status_code == 200
+    assert response.json()["followup"] == ""
+
+
+def test_download_report_rejects_awr_followup_prefix(api_client):
+    assert api_client.get("/api/download-report/awr_followup_x.html").status_code == 400
 
 
 def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):

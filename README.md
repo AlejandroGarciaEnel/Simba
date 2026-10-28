@@ -79,6 +79,8 @@ SIMBA_DB_QUERY_TIMEOUT_MS=5000
 # --- Informes AWR subidos (RF021) ---
 SIMBA_AWR_MAX_MB=20
 SIMBA_AWR_MAX_FILES=50
+SIMBA_AWR_FOLLOWUP=true
+SIMBA_AWR_FOLLOWUP_BUDGET_S=30
 
 # --- Informe HTML (RF006): esquema para el top de tablas ---
 REPORT_OWNER=ENET
@@ -221,6 +223,7 @@ dbAgent/
 ├── report/
 │   ├── __init__.py
 │   ├── awr_analyzer.py
+│   ├── awr_followup.py
 │   ├── generator.py
 │   └── template.html
 ├── reports/
@@ -307,9 +310,12 @@ El nombre incluye día, mes, año, hora y minutos.
 
 ## 9.1 Informes AWR (RF021)
 
-El análisis está en report/awr_analyzer.py y se expone como herramienta del agente (`analyze_awr_report`) y como endpoint `POST /api/awr/upload`.
+El análisis está en report/awr_analyzer.py y el seguimiento en vivo en report/awr_followup.py. Se expone como herramienta del agente (`analyze_awr_report`) y como endpoint `POST /api/awr/upload`.
 
-- Desde la web: arrastra el .html sobre el chat o usa el botón "Cargar informe AWR". No requiere BD ni LLM.
+- Desde la web: arrastra el .html sobre el chat o usa el botón "Cargar informe AWR". El resumen no requiere BD ni LLM; el seguimiento en vivo requiere BD conectada.
+- **Seguimiento tras el análisis**: al resumir el AWR se ejecutan automáticamente consultas de solo lectura asociadas a los hallazgos (SQL → RF002/RF010, CPU → RF001/RF003, bloqueos → RF005/RF017, esperas → RF015, sesiones → RF014/RF020, memoria → RF008/RF008.1; sin hallazgos → RF007/RF008/RF015) y se comparan los SQL IDs del AWR con el estado actual. El resultado se añade al resumen.
+- Seguridad: el contenido del AWR solo selecciona áreas; las acciones salen de una lista blanca fija y los SQL IDs deben tener formato Oracle (13 caracteres alfanuméricos). Hay límite de 12 consultas y presupuesto de tiempo `SIMBA_AWR_FOLLOWUP_BUDGET_S` (30 s). Si no hay BD, se devuelve solo el resumen.
+- `SIMBA_AWR_FOLLOWUP=false` desactiva el seguimiento en la subida web (útil si la API se expone sin autenticación).
 - Los ficheros se guardan en `awr/` con nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y nunca se sirven de vuelta al navegador.
 - Validaciones: extensión .html/.htm, fichero no vacío, cabecera `WORKLOAD REPOSITORY` y tamaño máximo `SIMBA_AWR_MAX_MB` (20 MB por defecto).
 - Se conservan como máximo `SIMBA_AWR_MAX_FILES` informes (50 por defecto); se eliminan los más antiguos.
