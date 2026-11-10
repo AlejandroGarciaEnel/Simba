@@ -518,7 +518,7 @@ function simpleTable(columns, rows, fmt = {}) {
         el("tbody", {}, rows.map((r) => el("tr", {}, columns.map(([key]) => {
             const v = r[key];
             return el("td", { text: fmt[key] ? fmt[key](v, r) : v == null ? "" : typeof v === "number" ? fmtNum(v, 2) : String(v).replace("T", " ").slice(0, 19) });
-        })))))));
+        }))))));
 }
 
 function openSqlDetail(card) {
