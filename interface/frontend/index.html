@@ -40,6 +40,7 @@
             </div>
             <nav class="tabs" id="tabs">
                 <button class="tab active" data-view="estado">Estado</button>
+                <button class="tab" data-view="queries">Queries</button>
                 <button class="tab" data-view="historico">Histórico</button>
                 <button class="tab" data-view="usuarios" data-min-role="administrador">Usuarios</button>
             </nav>
@@ -88,6 +89,29 @@
                         <div class="subtabs" id="detail-tabs"></div>
                         <div class="table-wrap" id="detail-body"><p class="muted">Abre esta sección para cargar los datos.</p></div>
                     </details>
+                </section>
+
+                <!-- Mejoras de queries (informe semanal) -->
+                <section class="view" id="view-queries" hidden>
+                    <div class="section-head">
+                        <div>
+                            <h2>Mejoras de queries</h2>
+                            <p class="muted" id="queries-meta">Recomendaciones sobre el informe semanal de SQL más costosas y su seguimiento.</p>
+                        </div>
+                        <div class="inline-form">
+                            <input type="search" id="queries-search" placeholder="SQL_ID, esquema o persona">
+                            <select id="queries-filter">
+                                <option value="">Todas las recomendaciones</option>
+                                <option value="seguimiento">Seguimiento (nuevas, estancadas, completadas)</option>
+                                <option value="tecnica">Pistas técnicas</option>
+                            </select>
+                            <button class="btn" id="queries-reload" title="Volver a leer los Excel">↻</button>
+                        </div>
+                    </div>
+                    <div class="counters" id="queries-counters"></div>
+                    <p class="note">ℹ️ Calculado a partir de los Excel del informe semanal (sin IA y sin consultar la BD).
+                        Son sugerencias: antes de actuar, deben verificarlas el DBA y el equipo funcional.</p>
+                    <div class="cards" id="queries-cards"></div>
                 </section>
 
                 <!-- Histórico -->

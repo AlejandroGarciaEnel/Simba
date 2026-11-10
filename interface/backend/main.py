@@ -391,6 +391,14 @@ async def clear_history(response: Response, x_session_id: str | None = Header(de
     }
 
 
+@app.get("/api/query-improvements")
+async def query_improvements(_: Dict[str, str] = Depends(as_consulta)):
+    """Recomendaciones sobre el informe semanal de queries y su seguimiento (lectura de Excel, sin LLM)."""
+    from query_reports.advisor import get_query_improvements
+
+    return await run_in_threadpool(get_query_improvements)
+
+
 @app.get("/api/health-history")
 async def health_history(limit: int = 20, _: Dict[str, str] = Depends(as_consulta)):
     """Histórico de preguntas sobre el estado de la BBDD y lo que se devolvió en cada una."""

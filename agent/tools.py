@@ -592,8 +592,24 @@ def check_database_health(force_refresh: bool = False) -> str:
     return format_health(get_health(requested_by=REQUESTER.get(), force_refresh=force))
 
 
+@tool
+def get_query_improvement_recommendations(sql_id: str = "") -> str:
+    """
+    Recomendaciones sobre el informe semanal de queries más costosas de PRAGU4E y su seguimiento de mejoras:
+    SQL nuevas en el top sin responsable, completadas que siguen en el top, mejoras estancadas o sin medir y
+    pistas técnicas (varios planes, muchas lecturas por fila, PL/SQL, exceso de ejecuciones, batch pesado).
+    Usar cuando pregunten por el informe/reporte semanal, las queries a mejorar o el estado de las mejoras.
+    Parámetro:
+    - sql_id: opcional, para ver solo una SQL_ID concreta.
+    """
+    from query_reports.advisor import format_query_improvements, get_query_improvements
+
+    return format_query_improvements(get_query_improvements(), sql_id=sql_id or None)
+
+
 ALL_TOOLS = [
     check_database_health,
+    get_query_improvement_recommendations,
     get_cpu_usage,
     get_top_cpu_queries,
     get_top_cpu_sessions,

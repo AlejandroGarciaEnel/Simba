@@ -179,6 +179,7 @@ function switchView(view) {
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
     document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
     if (view === "historico") loadHistory();
+    if (view === "queries") loadQueries();
     if (view === "usuarios") loadUsers();
 }
 
@@ -249,6 +250,7 @@ function renderAreaCard({ area, items, severity }) {
         shown.map((f) => el("li", {},
             relevant.length > 1 ? sevPill(f.severity) : null,
             el("p", { text: f.message }),
+            f.area === "Bloqueos" && f.details ? renderBlockers(f.details) : null,
             f.action ? el("div", { class: "rec" },
                 el("span", { class: "rec-label", text: "Sugerencia" }),
                 el("p", { text: f.action }),
@@ -272,8 +274,33 @@ function renderAreaCard({ area, items, severity }) {
         SEV[severity].order >= 1 ? el("footer", {}, ask) : null);
 }
 
+function renderBlockers(details) {
+    const cols = [
+        ["Sesión", (d) => `inst ${d.instancia} · ${d.sid_serial}`],
+        ["Quién", (d) => [d.usuario, d.usuario_so && `(${d.usuario_so})`].filter(Boolean).join(" ")],
+        ["Desde", (d) => [d.maquina, d.programa, d.modulo].filter(Boolean).join(" · ")],
+        ["Estado", (d) => d.estado + (d.inactiva_s != null ? ` ${fmtSeconds(d.inactiva_s)}` : "")],
+        ["Bloquea", (d) => `${d.bloquea_a} ses. · ${fmtSeconds(d.espera_max_s)}`],
+        ["Objeto", (d) => d.objeto || "—"],
+        ["SQL", (d) => d.sql_id ? `${d.sql_id} (${d.tipo_sql})${d.sql_texto ? ": " + d.sql_texto : ""}` : "—"],
+    ];
+    return el("div", { class: "table-wrap blockers" },
+        el("table", { class: "table table-compact" },
+            el("thead", {}, el("tr", {}, cols.map(([h]) => el("th", { text: h })))),
+            el("tbody", {}, details.map((d) => el("tr", {}, cols.map(([, fn]) => el("td", { text: fn(d) })))))));
+}
+
+function fmtSeconds(s) {
+    if (s == null) return "";
+    if (s < 60) return `${s} s`;
+    if (s < 3600) return `${Math.round(s / 60)} min`;
+    return `${(s / 3600).toFixed(1)} h`;
+}
+
 function askAbout(area, findings) {
-    const detail = findings.map((f) => `«${f.message}»`).join(" ");
+    const detail = findings.map((f) => `«${f.message}»` +
+        (f.details ? " Sesiones: " + f.details.map((d) => `${d.sid_serial} ${d.usuario} ${d.maquina} ${d.programa}`).join("; ") : "")
+    ).join(" ");
     openAssistant();
     const input = $("chat-input");
     input.value = `Sobre el área ${area} de la última revisión: ${detail} ¿Qué significa y qué debería comprobar?`;
@@ -323,6 +350,95 @@ function renderData(data) {
         el("thead", {}, el("tr", {}, cols.map((c) => el("th", { text: c })))),
         el("tbody", {}, data.slice(0, 500).map((r) =>
             el("tr", {}, cols.map((c) => el("td", { text: r[c] == null ? "" : String(r[c]) }))))));
+}
+
+// ========== Mejoras de queries ==========
+const QUERY_KIND = {
+    nueva_sin_seguimiento: { label: "Nueva sin seguimiento", group: "seguimiento", sev: "WARNING" },
+    completada_reaparece: { label: "Completada que sigue en el top", group: "seguimiento", sev: "WARNING" },
+    completada_empeora: { label: "Empeora tras el cambio", group: "seguimiento", sev: "WARNING" },
+    completada_sin_medir: { label: "Completada sin medir", group: "seguimiento", sev: "INFO" },
+    estancada: { label: "Estancada", group: "seguimiento", sev: "WARNING" },
+    planes_multiples: { label: "Varios planes", group: "tecnica", sev: "INFO" },
+    lecturas_por_fila: { label: "Muchas lecturas por fila", group: "tecnica", sev: "INFO" },
+    muchas_ejecuciones: { label: "Exceso de ejecuciones", group: "tecnica", sev: "INFO" },
+    plsql: { label: "Llamada PL/SQL", group: "tecnica", sev: "INFO" },
+    batch_pesado: { label: "Batch pesado", group: "tecnica", sev: "INFO" },
+};
+const fmtNum = (n, d = 0) => n == null ? "n/d" : Number(n).toLocaleString("es-ES", { maximumFractionDigits: d });
+let queriesData = null;
+
+async function loadQueries() {
+    $("queries-cards").replaceChildren(el("p", { class: "muted", text: "Leyendo informes…" }));
+    try {
+        queriesData = await api("/query-improvements");
+        renderQueries();
+    } catch (err) {
+        $("queries-cards").replaceChildren(el("p", { class: "form-error", text: err.message }));
+    }
+}
+
+function renderQueries() {
+    const data = queriesData;
+    if (!data) return;
+    if (data.error || !data.week) {
+        $("queries-counters").replaceChildren();
+        $("queries-cards").replaceChildren(el("p", { class: "muted",
+            text: data.error || "No hay ningún informe semanal en la carpeta configurada." }));
+        return;
+    }
+    const k = data.kpis;
+    $("queries-meta").textContent = `Semana ${data.week} · ${data.file} · ${data.weeks_available} semana(s) disponibles`;
+    const counter = (value, label) => el("div", { class: "counter" }, el("strong", { text: value }), el("span", { text: label }));
+    $("queries-counters").replaceChildren(
+        counter(String(k.sql_en_top), `SQL en el top · ${fmtNum(k.cpu_total_top_h, 1)} h CPU`),
+        k.seguimiento_configurado ? counter(String(k.sin_seguimiento), "Sin seguimiento") : counter("—", "Seguimiento no configurado"),
+        counter(String(k.completadas_que_reaparecen), `Completadas aún en el top · ${k.completadas_fuera_del_top} ya fuera`),
+        counter(String(k.estancadas), "Estancadas (varias semanas)"),
+    );
+
+    const text = $("queries-search").value.trim().toLowerCase();
+    const group = $("queries-filter").value;
+    const items = data.items
+        .map((i) => ({ ...i, hallazgos: i.hallazgos.filter((f) => !group || QUERY_KIND[f.tipo]?.group === group) }))
+        .filter((i) => i.hallazgos.length)
+        .filter((i) => !text || [i.sql_id, i.esquema, i.persona].some((v) => String(v || "").toLowerCase().includes(text)));
+    if (!items.length) {
+        $("queries-cards").replaceChildren(el("p", { class: "muted", text: "Ninguna SQL coincide con el filtro." }));
+        return;
+    }
+    $("queries-cards").replaceChildren(...items.map(renderQueryCard));
+}
+
+function renderQueryCard(i) {
+    const worst = i.hallazgos.some((f) => QUERY_KIND[f.tipo]?.sev === "WARNING") ? "WARNING" : "INFO";
+    const metrics = [
+        i.cpu_h != null && `${fmtNum(i.cpu_h, 1)} h CPU (${fmtNum(i.pct_cpu, 1)} %)`,
+        i.cpu_h_semana_anterior != null && `semana anterior ${fmtNum(i.cpu_h_semana_anterior, 1)} h`,
+        i.ejecuciones != null && `${fmtNum(i.ejecuciones)} ejec.`,
+        i.gets_ejec != null && `${fmtNum(i.gets_ejec)} lecturas/ejec.`,
+        i.planes && `${fmtNum(i.planes)} plan(es)`,
+        i.semanas_top && `${i.semanas_top} sem. en top`,
+    ].filter(Boolean).join(" · ");
+    return el("article", { class: `card sev-border-${SEV[worst].cls}` },
+        el("header", {},
+            el("h3", { class: "mono", text: i.sql_id }),
+            el("span", { class: "tag", text: i.prioridad || "—" })),
+        el("p", { class: "muted", text: [i.esquema, `Estado: ${i.estado}`, i.persona].filter(Boolean).join(" · ") }),
+        metrics ? el("small", { class: "muted", text: metrics }) : null,
+        i.sql_text ? el("pre", { class: "sql-snippet", text: i.sql_text }) : null,
+        el("ul", { class: "findings" }, i.hallazgos.map((f) => el("li", {},
+            el("span", { class: `sev-pill sev-${SEV[QUERY_KIND[f.tipo]?.sev || "INFO"].cls}`, text: QUERY_KIND[f.tipo]?.label || f.tipo }),
+            el("p", { text: f.mensaje }),
+            f.accion ? el("div", { class: "rec" },
+                el("span", { class: "rec-label", text: "Sugerencia" }),
+                el("p", { text: f.accion }),
+                f.responsable ? el("small", { class: "muted", text: `Responsable: ${f.responsable}` }) : null) : null))),
+        el("footer", {}, el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente", onclick: () => {
+            openAssistant();
+            $("chat-input").value = `Sobre la SQL_ID ${i.sql_id} del informe semanal: ¿qué me recomiendas revisar primero y por qué?`;
+            $("chat-input").focus();
+        } })));
 }
 
 // ========== Histórico ==========
@@ -606,6 +722,9 @@ function bindEvents() {
     $("force-btn").addEventListener("click", () => loadHealth(true));
     $("detail-panel").addEventListener("toggle", (e) => { if (e.target.open) loadDetail(); });
 
+    $("queries-reload").addEventListener("click", loadQueries);
+    $("queries-filter").addEventListener("change", renderQueries);
+    $("queries-search").addEventListener("input", renderQueries);
     $("history-reload").addEventListener("click", loadHistory);
     $("history-limit").addEventListener("change", loadHistory);
     $("new-user-form").addEventListener("submit", createUser);

@@ -185,6 +185,19 @@ que solo consume LLM cuando el usuario le pregunta. Variables: `SIMBA_USERS_FILE
 (8 por defecto) y `SIMBA_COOKIE_SECURE` (activar con HTTPS). Tras 5 intentos fallidos el usuario queda
 bloqueado 5 minutos.
 
+Si hay bloqueos, la tarjeta *Bloqueos* lista **todas** las sesiones bloqueantes raíz (instancia, SID/serial,
+usuario, máquina, programa, estado, a cuántas bloquea, objeto y SQL), y el asistente las enumera.
+
+### Mejoras de queries (informe semanal)
+
+La pestaña *Queries* y la herramienta del asistente `get_query_improvement_recommendations` leen, solo en
+lectura, los Excel del informe semanal de SQL más costosas y la hoja *Seguimiento* del proyecto de mejoras.
+Sin IA, señalan: SQL nuevas en el top sin seguimiento, completadas que siguen en el top tras una semana
+completa, mejoras estancadas (4+ semanas), completadas sin medir o que empeoran, y pistas técnicas (varios
+planes, muchas lecturas por fila, exceso de ejecuciones, PL/SQL, batch pesado). Los textos están en
+`query_reports/recommendations.json` para que el DBA los revise. Variables: `SIMBA_QUERY_REPORTS_DIR`
+(carpeta con `PRAGU4E_Informe_Semana_*.xlsx`) y `SIMBA_QUERY_TRACKING_FILE` (opcional, `PRAGU4E_Seguimiento.xlsx`).
+
 ---
 
 ## 6. Estructura del proyecto

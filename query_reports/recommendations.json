@@ -1,0 +1,62 @@
+{
+  "nueva_sin_seguimiento": {
+    "accion": "Entra en el top de consumo y no tiene responsable ni análisis: asignarla y revisar su plan de ejecución.",
+    "urgencia": "Según la CPU que consume",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "completada_reaparece": {
+    "accion": "Marcada como completada pero sigue en el top con un consumo parecido: comprobar que el cambio está desplegado en producción y que Oracle usa el plan nuevo (plan_hash_value en GV$SQL / DBMS_XPLAN).",
+    "urgencia": "Alta",
+    "responsable": "DBA + responsable de la mejora",
+    "revisado_por_dba": false
+  },
+  "completada_sin_medir": {
+    "accion": "Mejora implantada sin tiempos antes/después: medirlos para poder cerrarla y cuantificar la ganancia.",
+    "urgencia": "Baja",
+    "responsable": "Responsable de la mejora",
+    "revisado_por_dba": false
+  },
+  "completada_empeora": {
+    "accion": "El tiempo después del cambio es peor que el de antes: revisar el cambio y valorar volver al plan anterior.",
+    "urgencia": "Alta",
+    "responsable": "DBA + responsable de la mejora",
+    "revisado_por_dba": false
+  },
+  "estancada": {
+    "accion": "Lleva varias semanas en el top sin cerrarse: revisar qué bloquea el análisis y si hace falta escalarlo o pedir apoyo.",
+    "urgencia": "Media",
+    "responsable": "Responsable asignado",
+    "revisado_por_dba": false
+  },
+  "planes_multiples": {
+    "accion": "Tiene varios planes de ejecución en la semana: posible inestabilidad (bind peeking, estadísticas). Comparar los planes y valorar fijar el bueno con un SQL Plan Baseline.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "lecturas_por_fila": {
+    "accion": "Lee muchos bloques por cada fila que devuelve: suele indicar un acceso poco selectivo. Revisar índices sobre los filtros y joins, y si las estadísticas están al día.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "muchas_ejecuciones": {
+    "accion": "El coste viene del número de ejecuciones, no de cada una: valorar con la aplicación cachear el resultado o agrupar llamadas.",
+    "urgencia": "Media",
+    "responsable": "Equipo de la aplicación + DBA",
+    "revisado_por_dba": false
+  },
+  "plsql": {
+    "accion": "Es una llamada a un procedimiento PL/SQL: el consumo está en las sentencias que ejecuta dentro. Localizar las SQL hijas más costosas (o perfilar con DBMS_HPROF) antes de tocar nada.",
+    "urgencia": "Media",
+    "responsable": "DBA + equipo propietario del paquete",
+    "revisado_por_dba": false
+  },
+  "batch_pesado": {
+    "accion": "Pocas ejecuciones pero muy pesadas: probable proceso batch. Revisar su ventana horaria, estadísticas de las tablas que lee y si admite paralelismo o procesado incremental.",
+    "urgencia": "Media",
+    "responsable": "DBA + equipo funcional del proceso",
+    "revisado_por_dba": false
+  }
+}

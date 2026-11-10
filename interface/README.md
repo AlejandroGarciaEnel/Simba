@@ -38,6 +38,7 @@ Abre tu navegador en: **http://localhost:8000** e inicia sesión. El primer admi
 
 ✅ **Login y roles** — Consulta, DBA y Administrador (ver README principal)  
 ✅ **Panel de estado** — Revisión sin IA, agrupada por área, con sugerencias y responsable  
+✅ **Queries** — Recomendaciones sobre el informe semanal de SQL costosas y su seguimiento (`GET /api/query-improvements`)  
 ✅ **Histórico** — Quién consultó, cuándo y qué estado se devolvió  
 ✅ **Detalle técnico** — Datos en bruto de cada comprobación (DBA)  
 ✅ **Gestión de usuarios** — Alta, rol, activación y contraseña (Administrador)  

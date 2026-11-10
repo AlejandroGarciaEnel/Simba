@@ -255,3 +255,15 @@ body.assistant-open .assistant { width: var(--assistant-w); }
     .counters { grid-template-columns: repeat(2, 1fr); }
     .content { padding: 14px; }
 }
+
+/* Sesiones bloqueantes dentro de la tarjeta de Bloqueos */
+.blockers { margin: 8px 0; border: 1px solid var(--border); max-height: 320px; }
+.blockers td:last-child { white-space: normal; min-width: 260px; font-family: ui-monospace, monospace; font-size: 12px; }
+
+/* Mejoras de queries */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sql-snippet {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--surface-2);
+    border-radius: 8px; padding: 8px 10px; max-height: 6.5em; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+#queries-search { min-width: 220px; }
