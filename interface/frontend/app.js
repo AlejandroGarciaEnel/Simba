@@ -1,564 +1,633 @@
 /**
- * Script principal de la aplicación frontend.
- * Maneja chat, dark mode, descarga de informes y comunicación con API.
+ * SIMBA · Web de monitorización con roles.
+ * Panel de estado (sin IA), histórico, gestión de usuarios y asistente opcional en panel lateral.
+ * Todo el contenido que llega del servidor se pinta con textContent (sin innerHTML con datos).
  */
 
-const API_BASE = "/api";
+const API = "/api";
+const ROLE_LEVEL = { consulta: 0, dba: 1, administrador: 2 };
+const ROLE_LABEL = { consulta: "Consulta", dba: "DBA", administrador: "Administrador" };
+const SEV = {
+    OK: { label: "Correcto", cls: "ok", order: 0 },
+    INFO: { label: "Informativo", cls: "info", order: 1 },
+    WARNING: { label: "A revisar", cls: "warn", order: 2 },
+    CRITICAL: { label: "Prioritario", cls: "crit", order: 3 },
+};
+const AREA_ICON = {
+    CPU: "🧠", Bloqueos: "🔒", Conexiones: "🔌", Espacio: "💾", Sesiones: "👥",
+    Errores: "⚠️", Esperas: "⏳", "Operaciones largas": "🐢",
+};
 const AWR_MAX_MB = 20;
-let chatHistory = [];
-let isDarkMode = localStorage.getItem("darkMode") === "true";
-let isLoading = false;
 
-// ========== Gestión de Sesión (X-Session-Id) ==========
-let sessionId = sessionStorage.getItem("sessionId") || null;
+const state = {
+    user: null,
+    check: null,
+    chatSessionId: sessionStorage.getItem("chatSessionId"),
+    chat: JSON.parse(sessionStorage.getItem("chatHistory") || "[]"),
+    busy: false,
+};
 
-function getSessionHeaders(extraHeaders = {}) {
-    const headers = { ...extraHeaders };
-    if (sessionId) {
-        headers["X-Session-Id"] = sessionId;
+// ========== Utilidades ==========
+const $ = (id) => document.getElementById(id);
+
+function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+        if (v == null || v === false) continue;
+        if (k === "class") node.className = v;
+        else if (k === "text") node.textContent = v;
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+        else node.setAttribute(k, v === true ? "" : v);
     }
-    return headers;
+    for (const c of children.flat()) {
+        if (c == null || c === false) continue;
+        node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return node;
 }
 
-function updateSessionIdFromResponse(response) {
-    const newSessionId = response.headers.get("X-Session-Id");
-    if (newSessionId && newSessionId !== sessionId) {
-        sessionId = newSessionId;
-        sessionStorage.setItem("sessionId", sessionId);
-    }
+function can(role) {
+    return state.user && ROLE_LEVEL[state.user.role] >= ROLE_LEVEL[role];
 }
 
-// ========== Inicialización ==========
-document.addEventListener("DOMContentLoaded", () => {
-    initializeTheme();
-    initializeEventListeners();
-    initializeAwrUpload();
-    restoreChatHistory();
-    checkHealth();
-    
-    // Verificar salud cada 30 segundos
-    setInterval(checkHealth, 30000);
+function fmtDate(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "medium" });
+}
+
+function ago(iso) {
+    const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (isNaN(mins)) return "";
+    if (mins < 1) return "hace menos de un minuto";
+    if (mins < 60) return `hace ${mins} min`;
+    const h = Math.round(mins / 60);
+    return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+}
+
+function toast(message, kind = "ok") {
+    const t = el("div", { class: `toast toast-${kind}`, text: message });
+    $("toasts").append(t);
+    setTimeout(() => t.remove(), 4000);
+}
+
+function sevPill(sev) {
+    const s = SEV[sev] || SEV.INFO;
+    return el("span", { class: `sev-pill sev-${s.cls}`, text: s.label });
+}
+
+async function api(path, { method = "GET", body, headers = {}, raw = false } = {}) {
+    const opts = { method, headers: { ...headers }, credentials: "same-origin" };
+    if (body instanceof FormData) opts.body = body;
+    else if (body !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(API + path, opts);
+    if (res.status === 401 && path !== "/auth/login") {
+        showLogin();
+        throw new Error("Sesión caducada");
+    }
+    if (raw) return res;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.message || `Error ${res.status}`);
+    return data;
+}
+
+// ========== Arranque y sesión ==========
+document.addEventListener("DOMContentLoaded", async () => {
+    initTheme();
+    bindEvents();
+    try {
+        state.user = await api("/auth/me");
+        showApp();
+    } catch {
+        showLogin();
+    }
 });
 
-// ========== Tema Oscuro ==========
-function initializeTheme() {
-    if (isDarkMode) {
-        document.body.classList.add("dark-theme");
-        updateThemeIcon();
-    }
+function showLogin() {
+    state.user = null;
+    $("app-view").hidden = true;
+    $("login-view").hidden = false;
+    $("login-password").value = "";
+    $("login-username").focus();
 }
 
-function toggleTheme() {
-    isDarkMode = !isDarkMode;
-    document.body.classList.toggle("dark-theme");
-    localStorage.setItem("darkMode", isDarkMode);
-    updateThemeIcon();
-}
-
-function updateThemeIcon() {
-    const btn = document.getElementById("theme-btn");
-    btn.querySelector(".theme-icon").textContent = isDarkMode ? "☀️" : "🌙";
-}
-
-// ========== Event Listeners ==========
-function initializeEventListeners() {
-    const sendBtn = document.getElementById("send-btn");
-    const userInput = document.getElementById("user-input");
-    const themeBtn = document.getElementById("theme-btn");
-    const clearHistoryBtn = document.getElementById("clear-history-btn");
-    const retryBtn = document.getElementById("retry-btn");
-
-    // Enviar mensaje
-    sendBtn.addEventListener("click", sendMessage);
-    
-    // Enter + Ctrl para enviar
-    userInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-
-    // Auto-expand textarea
-    userInput.addEventListener("input", () => {
-        userInput.style.height = "auto";
-        userInput.style.height = Math.min(userInput.scrollHeight, 120) + "px";
-    });
-
-    // Tema
-    themeBtn.addEventListener("click", toggleTheme);
-
-    // Limpiar historial
-    clearHistoryBtn.addEventListener("click", clearChatHistory);
-
-    // Reintentar conexión
-    retryBtn.addEventListener("click", retryConnection);
-
-    // Quick actions
-    document.querySelectorAll(".quick-action-btn[data-query]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-            document.getElementById("user-input").value = btn.dataset.query;
-            sendMessage();
-        });
-    });
-}
-
-// ========== Carga de informe AWR (RF021) ==========
-function initializeAwrUpload() {
-    const chatContainer = document.querySelector(".chat-container");
-    const overlay = document.getElementById("drop-overlay");
-    const fileInput = document.getElementById("awr-file-input");
-    let dragDepth = 0;
-
-    // evita que el navegador abra el HTML si se suelta fuera de la zona
-    ["dragover", "drop"].forEach((evt) => window.addEventListener(evt, (e) => e.preventDefault()));
-
-    chatContainer.addEventListener("dragenter", (e) => {
-        if (!dragHasFiles(e)) return;
-        dragDepth++;
-        overlay.classList.add("active");
-    });
-
-    chatContainer.addEventListener("dragleave", () => {
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) overlay.classList.remove("active");
-    });
-
-    chatContainer.addEventListener("drop", (e) => {
-        dragDepth = 0;
-        overlay.classList.remove("active");
-        handleAwrFiles(e.dataTransfer.files);
-    });
-
-    document.getElementById("awr-upload-btn").addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", () => {
-        handleAwrFiles(fileInput.files);
-        fileInput.value = "";
-    });
-}
-
-function dragHasFiles(e) {
-    return e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
-}
-
-function handleAwrFiles(files) {
-    if (!files || files.length === 0) return;
-    if (isLoading) {
-        showErrorBanner("Espera a que termine la operación en curso.", false);
-        return;
-    }
-    if (files.length > 1) {
-        showErrorBanner("Carga un único informe AWR cada vez.", false);
-        return;
-    }
-
-    const file = files[0];
-    if (!/\.html?$/i.test(file.name)) {
-        showErrorBanner("Solo se admiten informes AWR en formato .html o .htm.", false);
-        return;
-    }
-    if (file.size === 0) {
-        showErrorBanner("El fichero está vacío.", false);
-        return;
-    }
-    if (file.size > AWR_MAX_MB * 1024 * 1024) {
-        showErrorBanner(`El informe supera el tamaño máximo de ${AWR_MAX_MB} MB.`, false);
-        return;
-    }
-
-    uploadAwrReport(file);
-}
-
-async function uploadAwrReport(file) {
-    const userMessage = `📄 Informe AWR cargado: ${file.name}`;
-    addMessageToUI("user", userMessage);
-    chatHistory.push({ role: "user", content: userMessage });
-
-    isLoading = true;
-    showLoadingIndicator();
-    document.getElementById("clear-history-btn").disabled = true;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
+async function login(e) {
+    e.preventDefault();
+    $("login-error").textContent = "";
     try {
-        // sin Content-Type: el navegador añade el boundary de multipart
-        const response = await fetch(`${API_BASE}/awr/upload`, {
+        state.user = await api("/auth/login", {
             method: "POST",
-            headers: getSessionHeaders(),
-            body: formData,
+            body: { username: $("login-username").value.trim(), password: $("login-password").value },
         });
-
-        updateSessionIdFromResponse(response);
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok || !data.success) {
-            throw new Error(data.detail || data.message || `Error ${response.status}`);
-        }
-
-        addMessageToUI("assistant", data.message);
-        chatHistory.push({ role: "assistant", content: data.message });
-        hideErrorBanner();
-        showNotification("✅ Informe AWR guardado y analizado");
-    } catch (error) {
-        console.error("Error subiendo AWR:", error);
-        showErrorBanner(`No se pudo analizar el informe AWR: ${error.message}`, false);
-        addMessageToUI("assistant", `⚠️ No se pudo analizar el informe AWR: ${error.message}`);
-    } finally {
-        isLoading = false;
-        hideLoadingIndicator();
-        document.getElementById("clear-history-btn").disabled = false;
-        saveChatHistory();
+        showApp();
+    } catch (err) {
+        $("login-error").textContent = err.message;
     }
 }
 
-// ========== Enviar Mensaje ==========
-async function sendMessage() {
-    const userInput = document.getElementById("user-input");
-    const message = userInput.value.trim();
+async function logout() {
+    await api("/auth/logout", { method: "POST" }).catch(() => {});
+    sessionStorage.removeItem("chatHistory");
+    sessionStorage.removeItem("chatSessionId");
+    state.chat = [];
+    state.chatSessionId = null;
+    $("messages").replaceChildren();
+    closeAssistant();
+    showLogin();
+}
 
-    if (!message || isLoading) return;
+function showApp() {
+    $("login-view").hidden = true;
+    $("app-view").hidden = false;
+    $("user-name").textContent = state.user.username;
+    $("user-role").textContent = ROLE_LABEL[state.user.role] || state.user.role;
+    $("user-role").className = `role-badge role-${state.user.role}`;
+    document.querySelectorAll("[data-min-role]").forEach((n) => {
+        n.hidden = !can(n.dataset.minRole);
+    });
+    renderChat();
+    switchView("estado");
+    loadHealth(false);
+    pollConnection();
+}
 
-    // Agregar mensaje del usuario al historial y UI
-    addMessageToUI("user", message);
-    chatHistory.push({ role: "user", content: message });
+let connTimer = null;
+async function pollConnection() {
+    clearInterval(connTimer);
+    const update = async () => {
+        if (!state.user) return;
+        try {
+            const h = await api("/health");
+            const ok = h.db_connected && h.llm_ready;
+            $("conn-dot").className = `dot ${ok ? "dot-ok" : h.db_connected ? "dot-warn" : "dot-crit"}`;
+            $("conn-text").textContent = ok ? "BD y asistente conectados"
+                : h.db_connected ? "BD conectada · asistente no disponible" : "BD no conectada";
+        } catch {
+            $("conn-dot").className = "dot dot-crit";
+            $("conn-text").textContent = "Servidor no disponible";
+        }
+    };
+    await update();
+    connTimer = setInterval(update, 60000);
+}
 
-    userInput.value = "";
-    userInput.style.height = "auto";
+// ========== Navegación ==========
+function switchView(view) {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+    document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
+    if (view === "historico") loadHistory();
+    if (view === "usuarios") loadUsers();
+}
 
-    isLoading = true;
-    showLoadingIndicator();
-    document.getElementById("clear-history-btn").disabled = true;
-
+// ========== Estado ==========
+async function loadHealth(force) {
+    const buttons = [$("refresh-btn"), $("force-btn")];
+    buttons.forEach((b) => { b.disabled = true; });
+    $("overall-title").textContent = force ? "Ejecutando revisión en Oracle…" : "Cargando revisión…";
     try {
-        const response = await fetch(`${API_BASE}/chat`, {
-            method: "POST",
-            headers: getSessionHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({
-                message: message,
-                history: chatHistory.slice(0, -1),
-            }),
-        });
-
-        updateSessionIdFromResponse(response);
-
-        if (!response.ok) {
-            throw new Error(`Error ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-
-        if (data.success) {
-            // Agregar respuesta del asistente
-            addMessageToUI("assistant", data.message);
-            chatHistory.push({ role: "assistant", content: data.message });
-
-            // Verificar si es solicitud de informe
-            if (data.is_report && data.report && data.report.success) {
-                downloadReport(data.report.filename);
-                showNotification("✅ Informe generado y descargado automáticamente");
-            }
-
-            hideErrorBanner();
-        } else {
-            // Error en respuesta
-            if (data.is_bd_error) {
-                showErrorBanner(data.message, true);
-            } else {
-                showErrorBanner(data.message, false);
-            }
-            addMessageToUI("assistant", `⚠️ Error: ${data.message}`);
-        }
-    } catch (error) {
-        console.error("Error:", error);
-        showErrorBanner(`Error de conexión: ${error.message}`, false);
-        addMessageToUI("assistant", `❌ No se pudo procesar tu pregunta. Intenta de nuevo.`);
+        state.check = await api(`/health-check${force ? "?force=true" : ""}`, { method: "POST" });
+        renderHealth();
+        if (force) toast("Revisión nueva completada");
+    } catch (err) {
+        $("overall-title").textContent = "No se pudo obtener la revisión";
+        $("overall-meta").textContent = err.message;
     } finally {
-        isLoading = false;
-        hideLoadingIndicator();
-        document.getElementById("clear-history-btn").disabled = false;
-        saveChatHistory();
+        buttons.forEach((b) => { b.disabled = false; });
     }
 }
 
-// ========== UI - Mensajes ==========
-function addMessageToUI(role, content) {
-    const messagesContainer = document.getElementById("chat-messages");
-
-    // Si es el primer mensaje real (quitar mensaje inicial)
-    if (
-        messagesContainer.children.length === 1 &&
-        messagesContainer.children[0].classList.contains("initial-message")
-    ) {
-        messagesContainer.children[0].remove();
+function groupByArea(findings) {
+    const areas = new Map();
+    for (const f of findings) {
+        if (!areas.has(f.area)) areas.set(f.area, []);
+        areas.get(f.area).push(f);
     }
-
-    const messageDiv = document.createElement("div");
-    messageDiv.className = `message ${role}-message`;
-
-    const contentDiv = document.createElement("div");
-    contentDiv.className = "message-content";
-    contentDiv.innerHTML = parseMarkdown(content);
-
-    messageDiv.appendChild(contentDiv);
-    messagesContainer.appendChild(messageDiv);
-
-    // Scroll al final
-    setTimeout(() => {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }, 50);
+    return [...areas.entries()]
+        .map(([area, items]) => ({
+            area,
+            items: items.sort((a, b) => SEV[b.severity].order - SEV[a.severity].order),
+            severity: items.reduce((m, f) => (SEV[f.severity].order > SEV[m].order ? f.severity : m), "OK"),
+        }))
+        .sort((a, b) => SEV[b.severity].order - SEV[a.severity].order || a.area.localeCompare(b.area));
 }
 
-function showLoadingIndicator() {
-    const messagesContainer = document.getElementById("chat-messages");
-    const loadingDiv = document.createElement("div");
-    loadingDiv.className = "message assistant-message";
-    loadingDiv.id = "loading-message";
+function renderHealth() {
+    const c = state.check;
+    const areas = groupByArea(c.findings || []);
+    const toReview = areas.filter((a) => SEV[a.severity].order >= 2).length;
 
-    const contentDiv = document.createElement("div");
-    contentDiv.className = "message-content";
-    contentDiv.innerHTML = `
-        <div class="loading-indicator">
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-        </div>
-    `;
+    $("overall-pill").replaceWith(Object.assign(sevPill(c.overall), { id: "overall-pill" }));
+    $("overall-title").textContent = toReview === 0
+        ? "Sin puntos a revisar en las comprobaciones realizadas"
+        : `${toReview} ${toReview === 1 ? "área a revisar" : "áreas a revisar"}`;
+    $("overall-meta").textContent =
+        `Datos de ${fmtDate(c.created_at)} (${ago(c.created_at)}) · ` +
+        (c.from_cache ? "revisión reutilizada (caché)" : "revisión recién ejecutada");
 
-    loadingDiv.appendChild(contentDiv);
-    messagesContainer.appendChild(loadingDiv);
-
-    setTimeout(() => {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }, 50);
-}
-
-function hideLoadingIndicator() {
-    const loading = document.getElementById("loading-message");
-    if (loading) loading.remove();
-}
-
-// ========== Markdown Parser Ligero ==========
-function parseMarkdown(text) {
-    let html = escapeHtml(text);
-
-    // Bold
-    html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-
-    // Italic
-    html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
-
-    // Code inline
-    html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-    // Code block
-    html = html.replace(
-        /```(\w+)?\n([\s\S]*?)```/g,
-        "<pre><code>$2</code></pre>"
+    const counts = { OK: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
+    areas.forEach((a) => { counts[a.severity] += 1; });
+    $("counters").replaceChildren(
+        ...["CRITICAL", "WARNING", "INFO", "OK"].map((s) =>
+            el("div", { class: `counter sev-border-${SEV[s].cls}` },
+                el("strong", { text: counts[s] }), el("span", { text: SEV[s].label })))
     );
 
-    // Listas no ordenadas
-    html = html.replace(/^\s*[-*+]\s+(.+)$/gm, "<li>$1</li>");
-    html = html.replace(/(<li>.*?<\/li>)/s, "<ul>$1</ul>");
+    $("area-cards").replaceChildren(...areas.map(renderAreaCard));
 
-    // Listas ordenadas
-    html = html.replace(/^\s*\d+\.\s+(.+)$/gm, "<li>$1</li>");
-
-    // Line breaks
-    html = html.replace(/\n\n/g, "</p><p>");
-    html = html.replace(/\n/g, "<br>");
-
-    // Párrafos
-    if (!html.startsWith("<")) {
-        html = "<p>" + html + "</p>";
-    }
-
-    return html;
+    const detail = $("detail-panel");
+    detail.dataset.loadedFor = "";
+    if (detail.open) loadDetail();
 }
 
-function escapeHtml(text) {
-    const map = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;",
-    };
-    return text.replace(/[&<>"']/g, (m) => map[m]);
+function renderAreaCard({ area, items, severity }) {
+    const relevant = items.filter((f) => f.severity !== "OK");
+    const shown = relevant.length ? relevant : items;
+    const list = el("ul", { class: "findings" },
+        shown.map((f) => el("li", {},
+            relevant.length > 1 ? sevPill(f.severity) : null,
+            el("p", { text: f.message }),
+            f.action ? el("div", { class: "rec" },
+                el("span", { class: "rec-label", text: "Sugerencia" }),
+                el("p", { text: f.action }),
+                (f.urgency || f.owner) ? el("small", { class: "muted",
+                    text: [f.urgency && `Urgencia: ${f.urgency}`, f.owner && `Responsable: ${f.owner}`]
+                        .filter(Boolean).join(" · ") }) : null,
+            ) : null,
+        )));
+
+    const ask = el("button", {
+        class: "btn btn-link",
+        text: "💬 Preguntar al asistente",
+        onclick: () => askAbout(area, shown),
+    });
+
+    return el("article", { class: `card sev-border-${SEV[severity].cls}` },
+        el("header", {},
+            el("h3", {}, el("span", { class: "area-icon", text: AREA_ICON[area] || "•" }), area),
+            sevPill(severity)),
+        list,
+        SEV[severity].order >= 1 ? el("footer", {}, ask) : null);
 }
 
-// ========== Errores y Notificaciones ==========
-function showErrorBanner(message, canRetry = false) {
-    const banner = document.getElementById("error-banner");
-    const errorText = document.getElementById("error-text");
-    const retryBtn = document.getElementById("retry-btn");
-
-    errorText.textContent = message;
-    retryBtn.style.display = canRetry ? "block" : "none";
-
-    banner.style.display = "flex";
+function askAbout(area, findings) {
+    const detail = findings.map((f) => `«${f.message}»`).join(" ");
+    openAssistant();
+    const input = $("chat-input");
+    input.value = `Sobre el área ${area} de la última revisión: ${detail} ¿Qué significa y qué debería comprobar?`;
+    input.focus();
 }
 
-function hideErrorBanner() {
-    document.getElementById("error-banner").style.display = "none";
-}
+// ---- Detalle técnico (DBA) ----
+const DETAIL_LABELS = {
+    cpu: "CPU", bloqueos: "Bloqueos", limites: "Límites", tablespaces: "Tablespaces",
+    sesiones_inactivas: "Sesiones inactivas", errores_ora: "Problemas Oracle (ADR)",
+    esperas: "Esperas", operaciones_largas: "Operaciones largas",
+};
 
-function showNotification(message) {
-    // Crear notificación temporal
-    const notification = document.createElement("div");
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: var(--color-success);
-        color: white;
-        padding: 12px 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        z-index: 10000;
-        animation: slideIn 0.3s ease;
-    `;
-    notification.textContent = message;
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-        notification.style.animation = "slideOut 0.3s ease";
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
-}
-
-// ========== Health Check ==========
-async function checkHealth() {
+async function loadDetail() {
+    const panel = $("detail-panel");
+    if (!state.check || panel.dataset.loadedFor === String(state.check.id)) return;
+    panel.dataset.loadedFor = String(state.check.id);
+    $("detail-body").replaceChildren(el("p", { class: "muted", text: "Cargando…" }));
     try {
-        const response = await fetch(`${API_BASE}/health`);
-        if (response.ok) {
-            const data = await response.json();
-            updateConnectionStatus(data);
-            return true;
-        } else {
-            updateConnectionStatus({ db_connected: false, llm_ready: false });
-            return false;
+        const { raw } = await api(`/health-check/${state.check.id}/detail`);
+        const keys = Object.keys(raw || {});
+        const show = (key) => {
+            document.querySelectorAll("#detail-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.key === key));
+            $("detail-body").replaceChildren(renderData(raw[key]));
+        };
+        $("detail-tabs").replaceChildren(...keys.map((k) =>
+            el("button", { "data-key": k, text: DETAIL_LABELS[k] || k.replace(/_/g, " "), onclick: () => show(k) })));
+        if (keys.length) show(keys[0]);
+    } catch (err) {
+        panel.dataset.loadedFor = "";
+        $("detail-body").replaceChildren(el("p", { class: "form-error", text: err.message }));
+    }
+}
+
+function renderData(data) {
+    if (data == null) return el("p", { class: "muted", text: "Sin datos." });
+    if (!Array.isArray(data)) {
+        if (typeof data === "object") {
+            return data.error ? el("p", { class: "form-error", text: `No disponible: ${data.error}` })
+                : renderData([data]);
         }
-    } catch (error) {
-        console.error("Health check error:", error);
-        updateConnectionStatus({ db_connected: false, llm_ready: false });
-        return false;
+        return el("p", { class: "big-value", text: String(data) });
     }
+    if (!data.length) return el("p", { class: "muted", text: "Sin filas (nada que reportar)." });
+    const cols = [...new Set(data.flatMap((r) => Object.keys(r)))];
+    return el("table", { class: "table table-compact" },
+        el("thead", {}, el("tr", {}, cols.map((c) => el("th", { text: c })))),
+        el("tbody", {}, data.slice(0, 500).map((r) =>
+            el("tr", {}, cols.map((c) => el("td", { text: r[c] == null ? "" : String(r[c]) }))))));
 }
 
-function updateConnectionStatus({ db_connected, llm_ready }) {
-    const dot = document.getElementById("status-dot");
-    const text = document.getElementById("status-text");
-
-    if (db_connected && llm_ready) {
-        dot.className = "status-dot connected";
-        text.textContent = "Base de datos y agente conectados";
-    } else if (db_connected && !llm_ready) {
-        dot.className = "status-dot error";
-        text.textContent = "Base de datos conectada, agente no disponible";
-    } else {
-        dot.className = "status-dot error";
-        text.textContent = "Base de datos desconectada";
-    }
-}
-
-// ========== Reintentar Conexión ==========
-async function retryConnection() {
-    isLoading = true;
-    document.getElementById("retry-btn").disabled = true;
-
+// ========== Histórico ==========
+async function loadHistory() {
+    const tbody = $("history-table").querySelector("tbody");
+    tbody.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "muted", text: "Cargando…" })));
     try {
-        const response = await fetch(`${API_BASE}/reset-connection`, {
-            method: "POST",
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            hideErrorBanner();
-            addMessageToUI("assistant", "✅ " + data.message);
-            updateConnectionStatus(data);
-        } else {
-            showErrorBanner(data.message, true);
-            addMessageToUI("assistant", "❌ " + data.message);
+        const { history } = await api(`/health-history?limit=${$("history-limit").value}`);
+        if (!history.length) {
+            tbody.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "muted", text: "Todavía no hay consultas registradas." })));
+            $("history-timeline").replaceChildren();
+            return;
         }
-    } catch (error) {
-        showErrorBanner(`Error: ${error.message}`, true);
-    } finally {
-        isLoading = false;
-        document.getElementById("retry-btn").disabled = false;
+        tbody.replaceChildren(...history.map((h) => el("tr", {},
+            el("td", { text: fmtDate(h.asked_at) }),
+            el("td", { text: h.requested_by }),
+            el("td", {}, el("span", { class: `tag ${h.from_cache ? "" : "tag-strong"}`,
+                text: h.from_cache ? `Caché (#${h.check_id})` : `Nueva (#${h.check_id})` })),
+            el("td", {}, sevPill(h.overall)),
+            el("td", {}, el("details", {},
+                el("summary", { text: firstLine(h.summary) }),
+                el("pre", { class: "summary-pre", text: h.summary }))),
+        )));
+
+        const checks = new Map();
+        [...history].reverse().forEach((h) => checks.set(h.check_id, h));
+        $("history-timeline").replaceChildren(...[...checks.values()].map((h) =>
+            el("span", { class: `tl-dot sev-bg-${SEV[h.overall].cls}`,
+                title: `#${h.check_id} · ${fmtDate(h.check_created_at)} · ${SEV[h.overall].label}` })));
+    } catch (err) {
+        tbody.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "form-error", text: err.message })));
     }
 }
 
-// ========== Historial de Chat ==========
-function saveChatHistory() {
-    // scope por pestaña, igual que sessionId, para no mezclar historial entre pestañas/sesiones
-    sessionStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+function firstLine(text) {
+    const line = (text || "").split("\n").find((l) => l.trim() && !l.startsWith("Estado global")) || text || "";
+    return line.length > 110 ? line.slice(0, 107) + "…" : line;
 }
 
-function restoreChatHistory() {
-    const saved = sessionStorage.getItem("chatHistory");
-    if (saved) {
-        try {
-            chatHistory = JSON.parse(saved);
-            // Renderizar historial
-            chatHistory.forEach((msg) => {
-                addMessageToUI(msg.role, msg.content);
-            });
-        } catch (e) {
-            console.error("Error restaurando historial:", e);
-            chatHistory = [];
-        }
+// ========== Usuarios ==========
+async function loadUsers() {
+    const tbody = $("users-table").querySelector("tbody");
+    try {
+        const { users } = await api("/users");
+        tbody.replaceChildren(...users.map(renderUserRow));
+    } catch (err) {
+        tbody.replaceChildren(el("tr", {}, el("td", { colspan: 5, class: "form-error", text: err.message })));
     }
 }
 
-async function clearChatHistory() {
-    if (!confirm("¿Estás seguro de que deseas limpiar el historial?")) {
+function renderUserRow(u) {
+    const self = u.username === state.user.username;
+    const roleSel = el("select", { onchange: (e) => updateUser(u.username, { role: e.target.value }) },
+        Object.keys(ROLE_LEVEL).map((r) => el("option", { value: r, selected: r === u.role, text: ROLE_LABEL[r] })));
+    const active = el("input", { type: "checkbox", checked: u.active,
+        onchange: (e) => updateUser(u.username, { active: e.target.checked }) });
+    return el("tr", {},
+        el("td", {}, u.username, self ? el("span", { class: "muted", text: " (tú)" }) : null),
+        el("td", {}, roleSel),
+        el("td", {}, active),
+        el("td", { text: fmtDate(u.created_at) }),
+        el("td", { class: "row-actions" },
+            el("button", { class: "btn btn-small", text: "Cambiar contraseña", onclick: () => resetPassword(u.username) }),
+            self ? null : el("button", { class: "btn btn-small btn-danger", text: "Eliminar", onclick: () => deleteUser(u.username) })));
+}
+
+async function updateUser(username, changes) {
+    try {
+        await api(`/users/${encodeURIComponent(username)}`, { method: "PATCH", body: changes });
+        toast("Usuario actualizado");
+        if (username === state.user.username) state.user = await api("/auth/me");
+    } catch (err) {
+        toast(err.message, "error");
+    }
+    loadUsers();
+}
+
+async function resetPassword(username) {
+    const password = prompt(`Nueva contraseña para ${username} (mínimo 10 caracteres):`);
+    if (password) updateUser(username, { password });
+}
+
+async function deleteUser(username) {
+    if (!confirm(`¿Eliminar el usuario ${username}?`)) return;
+    try {
+        await api(`/users/${encodeURIComponent(username)}`, { method: "DELETE" });
+        toast("Usuario eliminado");
+    } catch (err) {
+        toast(err.message, "error");
+    }
+    loadUsers();
+}
+
+async function createUser(e) {
+    e.preventDefault();
+    try {
+        await api("/users", { method: "POST", body: {
+            username: $("nu-username").value.trim(), password: $("nu-password").value, role: $("nu-role").value } });
+        e.target.reset();
+        toast("Usuario creado");
+        loadUsers();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+// ========== Asistente ==========
+function openAssistant() {
+    document.body.classList.add("assistant-open");
+    $("assistant").setAttribute("aria-hidden", "false");
+}
+
+function closeAssistant() {
+    document.body.classList.remove("assistant-open");
+    $("assistant").setAttribute("aria-hidden", "true");
+}
+
+function chatHeaders() {
+    return state.chatSessionId ? { "X-Session-Id": state.chatSessionId } : {};
+}
+
+function rememberChat(res) {
+    const sid = res.headers.get("X-Session-Id");
+    if (sid) { state.chatSessionId = sid; sessionStorage.setItem("chatSessionId", sid); }
+    sessionStorage.setItem("chatHistory", JSON.stringify(state.chat.slice(-60)));
+}
+
+function renderChat() {
+    const box = $("messages");
+    if (!state.chat.length) {
+        box.replaceChildren(el("div", { class: "msg msg-assistant" }, el("div", { class: "bubble" },
+            el("p", { text: "Hola. Puedo explicarte el estado de la base de datos, el porqué de un hallazgo o consultar datos concretos (CPU, sesiones, consultas pesadas…)." }),
+            el("p", { class: "muted", text: "El panel de estado no usa IA; úsame solo cuando necesites una explicación o un dato adicional." }))));
         return;
     }
-
-    try {
-        const response = await fetch(`${API_BASE}/clear-history`, {
-            method: "POST",
-            headers: getSessionHeaders(),
-        });
-        updateSessionIdFromResponse(response);
-    } catch (error) {
-        // fallo de red al notificar al backend no debe bloquear la limpieza local
-        console.error("Error limpiando historial en backend:", error);
-    }
-
-    chatHistory = [];
-    sessionStorage.removeItem("chatHistory");
-
-    const messagesContainer = document.getElementById("chat-messages");
-    messagesContainer.innerHTML = `
-        <div class="message assistant-message initial-message">
-            <div class="message-content">
-                <p>Hola 👋 Soy tu asistente de monitorización de bases de datos Oracle.</p>
-                <p>Puedo ayudarte a:</p>
-                <ul>
-                    <li>Ver el uso actual de CPU</li>
-                    <li>Identificar queries pesadas</li>
-                    <li>Detectar sesiones bloqueadas</li>
-                    <li>Encontrar sesiones inactivas</li>
-                    <li>Generar informes completos en HTML</li>
-                    <li>Analizar informes AWR (arrastra el .html sobre el chat)</li>
-                </ul>
-                <p>¿Qué deseas saber? Usa los botones de la izquierda o escribe tu pregunta.</p>
-            </div>
-        </div>
-    `;
-
-    hideErrorBanner();
+    box.replaceChildren(...state.chat.map((m) => renderMessage(m.role, m.content)));
+    box.scrollTop = box.scrollHeight;
 }
 
-// ========== Descargar Informe ==========
+function renderMessage(role, content) {
+    return el("div", { class: `msg msg-${role}` }, el("div", { class: "bubble" }, renderMarkdown(content)));
+}
+
+/** Markdown mínimo construido con nodos DOM (negrita, código, listas, párrafos). */
+function renderMarkdown(text) {
+    const frag = document.createDocumentFragment();
+    const inline = (line) => {
+        const span = document.createDocumentFragment();
+        line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).forEach((part) => {
+            if (/^\*\*[^*]+\*\*$/.test(part)) span.append(el("strong", { text: part.slice(2, -2) }));
+            else if (/^`[^`]+`$/.test(part)) span.append(el("code", { text: part.slice(1, -1) }));
+            else if (part) span.append(part);
+        });
+        return span;
+    };
+    let list = null;
+    let pre = null;
+    for (const line of String(text || "").split("\n")) {
+        if (line.trim().startsWith("```")) {
+            if (pre) { frag.append(pre); pre = null; } else { pre = el("pre"); }
+            continue;
+        }
+        if (pre) { pre.append(line + "\n"); continue; }
+        const item = line.match(/^\s*(?:[-*+]|\d+\.)\s+(.*)$/);
+        if (item) {
+            if (!list) { list = el("ul"); frag.append(list); }
+            list.append(el("li", {}, inline(item[1])));
+            continue;
+        }
+        list = null;
+        const heading = line.match(/^#{1,4}\s+(.*)$/);
+        if (heading) frag.append(el("h4", {}, inline(heading[1])));
+        else if (line.trim()) frag.append(el("p", {}, inline(line)));
+    }
+    if (pre) frag.append(pre);
+    return frag;
+}
+
+function setBusy(busy) {
+    state.busy = busy;
+    $("send-btn").disabled = busy;
+    const box = $("messages");
+    $("typing")?.remove();
+    if (busy) {
+        box.append(el("div", { class: "msg msg-assistant", id: "typing" },
+            el("div", { class: "bubble typing" }, el("span"), el("span"), el("span"))));
+        box.scrollTop = box.scrollHeight;
+    }
+}
+
+function pushMessage(role, content) {
+    state.chat.push({ role, content });
+    if (state.chat.length === 1) $("messages").replaceChildren();
+    $("messages").append(renderMessage(role, content));
+    $("messages").scrollTop = $("messages").scrollHeight;
+}
+
+async function sendMessage(text) {
+    const message = (text ?? $("chat-input").value).trim();
+    if (!message || state.busy) return;
+    $("chat-input").value = "";
+    pushMessage("user", message);
+    setBusy(true);
+    try {
+        const res = await api("/chat", { method: "POST", body: { message }, headers: chatHeaders(), raw: true });
+        const data = await res.json().catch(() => ({}));
+        rememberChat(res);
+        if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
+        pushMessage("assistant", data.success ? data.message : `⚠️ ${data.message}`);
+        if (data.is_report && data.report?.filename) downloadReport(data.report.filename);
+    } catch (err) {
+        if (err.message !== "Sesión caducada") pushMessage("assistant", `⚠️ ${err.message}`);
+    } finally {
+        setBusy(false);
+        sessionStorage.setItem("chatHistory", JSON.stringify(state.chat.slice(-60)));
+    }
+}
+
+async function clearChat() {
+    if (!confirm("¿Limpiar la conversación con el asistente?")) return;
+    await api("/clear-history", { method: "POST", headers: chatHeaders(), raw: true }).catch(() => {});
+    state.chat = [];
+    sessionStorage.removeItem("chatHistory");
+    renderChat();
+}
+
 function downloadReport(filename) {
-    const link = document.createElement("a");
-    link.href = `${API_BASE}/download-report/${filename}`;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = el("a", { href: `${API}/download-report/${encodeURIComponent(filename)}`, download: filename });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    toast("Informe generado y descargado");
+}
+
+// ---- AWR (DBA) ----
+async function uploadAwr(files) {
+    if (!can("dba") || !files?.length || state.busy) return;
+    const file = files[0];
+    if (files.length > 1) return toast("Carga un único informe AWR cada vez.", "error");
+    if (!/\.html?$/i.test(file.name)) return toast("Solo se admiten informes AWR .html o .htm.", "error");
+    if (file.size === 0 || file.size > AWR_MAX_MB * 1024 * 1024) return toast(`El informe debe ocupar entre 1 byte y ${AWR_MAX_MB} MB.`, "error");
+
+    openAssistant();
+    pushMessage("user", `📄 Informe AWR cargado: ${file.name}`);
+    setBusy(true);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+        const res = await api("/awr/upload", { method: "POST", body: form, headers: chatHeaders(), raw: true });
+        const data = await res.json().catch(() => ({}));
+        rememberChat(res);
+        if (!res.ok || !data.success) throw new Error(data.detail || data.message || `Error ${res.status}`);
+        pushMessage("assistant", data.message);
+    } catch (err) {
+        pushMessage("assistant", `⚠️ No se pudo analizar el informe AWR: ${err.message}`);
+    } finally {
+        setBusy(false);
+        sessionStorage.setItem("chatHistory", JSON.stringify(state.chat.slice(-60)));
+    }
+}
+
+// ========== Tema y eventos ==========
+function initTheme() {
+    const dark = localStorage.getItem("darkMode") === "true";
+    document.body.classList.toggle("dark", dark);
+    $("theme-btn").textContent = dark ? "☀️" : "🌙";
+}
+
+function bindEvents() {
+    $("login-form").addEventListener("submit", login);
+    $("logout-btn").addEventListener("click", logout);
+    $("theme-btn").addEventListener("click", () => {
+        localStorage.setItem("darkMode", String(!document.body.classList.contains("dark")));
+        initTheme();
+    });
+    $("tabs").addEventListener("click", (e) => {
+        if (e.target.dataset.view) switchView(e.target.dataset.view);
+    });
+
+    $("refresh-btn").addEventListener("click", () => loadHealth(false));
+    $("force-btn").addEventListener("click", () => loadHealth(true));
+    $("detail-panel").addEventListener("toggle", (e) => { if (e.target.open) loadDetail(); });
+
+    $("history-reload").addEventListener("click", loadHistory);
+    $("history-limit").addEventListener("change", loadHistory);
+    $("new-user-form").addEventListener("submit", createUser);
+
+    $("assistant-toggle").addEventListener("click", () =>
+        document.body.classList.contains("assistant-open") ? closeAssistant() : openAssistant());
+    $("assistant-close").addEventListener("click", closeAssistant);
+    $("clear-chat-btn").addEventListener("click", clearChat);
+    $("composer").addEventListener("submit", (e) => { e.preventDefault(); sendMessage(); });
+    $("chat-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendMessage(); }
+    });
+    $("quick-actions").addEventListener("click", (e) => {
+        if (e.target.dataset.query) sendMessage(e.target.dataset.query);
+    });
+
+    $("awr-btn").addEventListener("click", () => $("awr-input").click());
+    $("awr-input").addEventListener("change", (e) => { uploadAwr(e.target.files); e.target.value = ""; });
+    const panel = $("assistant");
+    let depth = 0;
+    ["dragover", "drop"].forEach((evt) => window.addEventListener(evt, (e) => e.preventDefault()));
+    panel.addEventListener("dragenter", () => { if (can("dba")) { depth++; panel.classList.add("dragging"); } });
+    panel.addEventListener("dragleave", () => { depth = Math.max(0, depth - 1); if (!depth) panel.classList.remove("dragging"); });
+    panel.addEventListener("drop", (e) => { depth = 0; panel.classList.remove("dragging"); uploadAwr(e.dataTransfer.files); });
 }

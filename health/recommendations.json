@@ -60,6 +60,12 @@
     "responsable": "DBA",
     "revisado_por_dba": false
   },
+  "errores_ora_recurrentes": {
+    "accion": "Problema que Oracle ya registraba antes: comprobar si hay incidencia de soporte abierta y si su frecuencia ha cambiado o coincide en el tiempo con los fallos reportados.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
   "errores_ora_graves": {
     "accion": "Error interno o de memoria (p. ej. ORA-00600, ORA-07445, ORA-04031): abrir incidencia de soporte de inmediato con el alert log y los ficheros de traza.",
     "urgencia": "Crítica",

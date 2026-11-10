@@ -15,7 +15,7 @@ from db.connection import get_connection
 
 logger = logging.getLogger("db.queries")
 
-# Timeout por query en milisegundos (cx_Oracle Cursor.callTimeout); configurable
+# Timeout por query en milisegundos (cx_Oracle Connection.callTimeout); configurable
 # vía SIMBA_DB_QUERY_TIMEOUT_MS para no bloquear el agente ante una BD lenta/colgada.
 QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
 
@@ -30,11 +30,13 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, A
     start = time.perf_counter()
     conn = get_connection()
     try:
+        # en cx_Oracle el timeout es de la conexión (el cursor no tiene callTimeout y no se aplicaba)
+        try:
+            if conn.callTimeout != QUERY_TIMEOUT_MS:
+                conn.callTimeout = QUERY_TIMEOUT_MS
+        except AttributeError:
+            logger.debug("connection_without_calltimeout op=%s", operation)
         with conn.cursor() as cur:
-            try:
-                cur.callTimeout = QUERY_TIMEOUT_MS
-            except AttributeError:
-                logger.debug("cursor_without_calltimeout op=%s", operation)
             cur.execute(sql, params or {})
             columns = [col[0] for col in cur.description]
             rows = cur.fetchall()
@@ -989,22 +991,23 @@ def get_long_operations(limit: int = 5) -> list[dict[str, Any]]:
     return _fetchall_as_dicts(sql, {"limit": limit})
 
 
-def get_recent_ora_errors(hours: int = 1, limit: int = 10) -> list[dict[str, Any]]:
-    """Errores ORA- recientes del alert log (V$DIAG_ALERT_EXT)."""
-    sql = """
-        SELECT *
-        FROM (
-            SELECT
-                TO_CHAR(originating_timestamp, 'YYYY-MM-DD HH24:MI:SS') AS fecha,
-                SUBSTR(message_text, 1, 300)                            AS mensaje
-            FROM v$diag_alert_ext
-            WHERE originating_timestamp > SYSTIMESTAMP - NUMTODSINTERVAL(:horas, 'HOUR')
-              AND message_text LIKE '%ORA-%'
-            ORDER BY originating_timestamp DESC
-        )
-        WHERE ROWNUM <= :limit
+def get_recent_problems(hours: int = 1) -> list[dict[str, Any]]:
     """
-    return _fetchall_as_dicts(sql, {"horas": hours, "limit": limit})
+    Problemas de Oracle (ADR, V$DIAG_PROBLEM) con incidencias en las últimas horas, con la fecha en que
+    apareció cada uno por primera vez para distinguir lo nuevo de lo recurrente. Solo la instancia conectada.
+    Sustituye a V$DIAG_ALERT_EXT, que lee todo el alert log y en este entorno supera el minuto.
+    """
+    sql = """
+        SELECT
+            problem_key                                              AS problema,
+            TO_CHAR(firstinc_time, 'YYYY-MM-DD HH24:MI:SS')          AS primera_vez,
+            TO_CHAR(lastinc_time, 'YYYY-MM-DD HH24:MI:SS')           AS ultima_vez,
+            ROUND(SYSDATE - CAST(firstinc_time AS DATE), 1)          AS dias_desde_primera
+        FROM v$diag_problem
+        WHERE lastinc_time > SYSTIMESTAMP - NUMTODSINTERVAL(:horas, 'HOUR')
+        ORDER BY lastinc_time DESC
+    """
+    return _fetchall_as_dicts(sql, {"horas": hours})
 
 
 def get_cluster_inactive_sessions() -> int:

@@ -93,10 +93,18 @@ def test_fetchall_as_dicts_reraises_execute_exception_unchanged(mock_db_connecti
         assert str(raised) == "ORA-12170: connection timeout"
 
 
-def test_fetchall_as_dicts_ignores_calltimeout_when_cursor_does_not_support_it(
+def test_fetchall_as_dicts_sets_calltimeout_on_connection(mock_db_connection, fake_cursor):
+    set_query_result(fake_cursor, ["CPU_PCT"], [(42.5,)])
+
+    q.get_cpu_usage()
+
+    assert mock_db_connection.callTimeout == q.QUERY_TIMEOUT_MS
+
+
+def test_fetchall_as_dicts_ignores_calltimeout_when_connection_does_not_support_it(
     mock_db_connection, fake_cursor
 ):
-    delattr(fake_cursor, "callTimeout")
+    delattr(mock_db_connection, "callTimeout")
     set_query_result(fake_cursor, ["CPU_PCT"], [(42.5,)])
 
     result = q.get_cpu_usage()

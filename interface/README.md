@@ -29,12 +29,19 @@ uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 
 ### 3. Acceder a la interfaz
 
-Abre tu navegador en: **http://localhost:8000**
+Abre tu navegador en: **http://localhost:8000** e inicia sesión. El primer administrador se crea con
+`python -m interface.backend.auth crear-usuario <usuario> --rol administrador` (desde la raíz del proyecto).
 
 ---
 
 ## 📋 Características
 
+✅ **Login y roles** — Consulta, DBA y Administrador (ver README principal)  
+✅ **Panel de estado** — Revisión sin IA, agrupada por área, con sugerencias y responsable  
+✅ **Histórico** — Quién consultó, cuándo y qué estado se devolvió  
+✅ **Detalle técnico** — Datos en bruto de cada comprobación (DBA)  
+✅ **Gestión de usuarios** — Alta, rol, activación y contraseña (Administrador)  
+✅ **Asistente opcional** — Panel lateral con el agente; solo se usa cuando se necesita  
 ✅ **Chat conversacional** — Interfaz estilo Gemini con historial  
 ✅ **Dark mode** — Tema oscuro/claro persistente en navegador  
 ✅ **Markdown rendering** — Soporte para formato de texto enriquecido  

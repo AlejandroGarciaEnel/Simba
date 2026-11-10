@@ -3,108 +3,177 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SIMBA</title>
+    <title>SIMBA · Monitor Oracle</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h1 class="logo">SIMBA</h1>
-                <p class="subtitle">Monitor Oracle</p>
-            </div>
-            
-            <div class="theme-toggle">
-                <button id="theme-btn" class="theme-btn" title="Cambiar tema">
-                    <span class="theme-icon">🌙</span>
-                </button>
-            </div>
-            
-            <div class="quick-actions">
-                <h3>Acciones rápidas</h3>
-                <button class="quick-action-btn" data-query="Dame un resumen general de la base de datos">
-                    📋 Resumen general de la BBDD
-                </button>
-                <button class="quick-action-btn" data-query="¿Cuánta CPU está usando la base de datos?">
-                    📊 CPU actual
-                </button>
-                <button class="quick-action-btn" data-query="Dime el total de sesiones conectadas en la base de datos">
-                    👥 Total de sesiones
-                </button>
-                <button class="quick-action-btn" data-query="Genera un informe completo en HTML">
-                    🧾 Generar un informe
-                </button>
-                <button id="awr-upload-btn" class="quick-action-btn" title="También puedes arrastrar el .html sobre el chat">
-                    📄 Cargar informe AWR
-                </button>
-                <input type="file" id="awr-file-input" accept=".html,.htm" hidden>
-            </div>
-            
-            <div class="sidebar-footer">
-                <button id="clear-history-btn" class="footer-btn">
-                    🗑️ Limpiar historial
-                </button>
-            </div>
-        </aside>
-
-        <!-- Main Chat Area -->
-        <main class="chat-container">
-            <div class="drop-overlay" id="drop-overlay" aria-hidden="true">
-                <p>📄 Suelta aquí el informe AWR (.html) para analizarlo</p>
-            </div>
-            <div class="chat-header">
-                <h2>Chat con el Agente de Monitorización</h2>
-                <div class="connection-status" id="connection-status">
-                    <span class="status-dot" id="status-dot"></span>
-                    <span id="status-text">Conectando...</span>
+    <!-- ========== Login ========== -->
+    <section id="login-view" class="login-view" hidden>
+        <form id="login-form" class="login-card" autocomplete="on">
+            <div class="brand brand-lg">
+                <span class="brand-mark">S</span>
+                <div>
+                    <h1>SIMBA</h1>
+                    <p>Monitorización de base de datos Oracle</p>
                 </div>
             </div>
+            <label>Usuario
+                <input id="login-username" name="username" autocomplete="username" required>
+            </label>
+            <label>Contraseña
+                <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+            </label>
+            <p id="login-error" class="form-error" role="alert"></p>
+            <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+        </form>
+    </section>
 
-            <div class="chat-messages" id="chat-messages">
-                <div class="message assistant-message initial-message">
-                    <div class="message-content">
-                        <p>Hola 👋 Soy tu asistente de monitorización de bases de datos Oracle.</p>
-                        <p>Puedo ayudarte a:</p>
-                        <ul>
-                            <li>Ver el uso actual de CPU</li>
-                            <li>Identificar queries pesadas</li>
-                            <li>Detectar sesiones bloqueadas</li>
-                            <li>Encontrar sesiones inactivas</li>
-                            <li>Generar informes completos en HTML</li>
-                            <li>Analizar informes AWR (arrastra el .html sobre el chat)</li>
-                        </ul>
-                        <p>¿Qué deseas saber? Usa los botones de la izquierda o escribe tu pregunta.</p>
+    <!-- ========== Aplicación ========== -->
+    <div id="app-view" class="app" hidden>
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark">S</span>
+                <div>
+                    <strong>SIMBA</strong>
+                    <small>Monitor Oracle</small>
+                </div>
+            </div>
+            <nav class="tabs" id="tabs">
+                <button class="tab active" data-view="estado">Estado</button>
+                <button class="tab" data-view="historico">Histórico</button>
+                <button class="tab" data-view="usuarios" data-min-role="administrador">Usuarios</button>
+            </nav>
+            <div class="topbar-right">
+                <span class="conn" id="conn" title="Estado de la conexión">
+                    <span class="dot" id="conn-dot"></span><span id="conn-text">Comprobando…</span>
+                </span>
+                <button class="btn btn-ghost" id="assistant-toggle" title="Abrir el asistente">💬 Asistente</button>
+                <button class="icon-btn" id="theme-btn" title="Cambiar tema">🌙</button>
+                <div class="user-chip">
+                    <span id="user-name"></span>
+                    <span class="role-badge" id="user-role"></span>
+                </div>
+                <button class="btn btn-ghost" id="logout-btn">Salir</button>
+            </div>
+        </header>
+
+        <div class="layout">
+            <main class="content">
+                <!-- Estado -->
+                <section class="view" id="view-estado">
+                    <div class="status-hero" id="status-hero">
+                        <div class="status-main">
+                            <span class="sev-pill" id="overall-pill">—</span>
+                            <div>
+                                <h2 id="overall-title">Cargando revisión…</h2>
+                                <p class="muted" id="overall-meta"></p>
+                            </div>
+                        </div>
+                        <div class="status-actions">
+                            <button class="btn" id="refresh-btn" title="Muestra la última revisión; solo consulta Oracle si ha caducado">↻ Actualizar</button>
+                            <button class="btn btn-primary" id="force-btn" data-min-role="dba"
+                                    title="Ejecuta una revisión nueva contra Oracle ignorando la caché">Revisar ahora</button>
+                        </div>
+                    </div>
+
+                    <div class="counters" id="counters"></div>
+
+                    <p class="note">ℹ️ Los hallazgos son indicios, no causas confirmadas. Las recomendaciones son sugerencias:
+                        antes de actuar, debe verificarlas el equipo funcional.</p>
+
+                    <div class="cards" id="area-cards"></div>
+
+                    <details class="panel" id="detail-panel" data-min-role="dba">
+                        <summary>Detalle técnico de la revisión <span class="muted">(DBA)</span></summary>
+                        <div class="subtabs" id="detail-tabs"></div>
+                        <div class="table-wrap" id="detail-body"><p class="muted">Abre esta sección para cargar los datos.</p></div>
+                    </details>
+                </section>
+
+                <!-- Histórico -->
+                <section class="view" id="view-historico" hidden>
+                    <div class="section-head">
+                        <div>
+                            <h2>Histórico de consultas de estado</h2>
+                            <p class="muted">Quién preguntó, cuándo y qué se le devolvió (desde la web o desde el asistente).</p>
+                        </div>
+                        <div class="inline-form">
+                            <select id="history-limit">
+                                <option value="20">Últimas 20</option>
+                                <option value="50">Últimas 50</option>
+                                <option value="200">Últimas 200</option>
+                            </select>
+                            <button class="btn" id="history-reload">↻</button>
+                        </div>
+                    </div>
+                    <div class="timeline" id="history-timeline" title="Estado de cada revisión, de la más antigua a la más reciente"></div>
+                    <div class="table-wrap">
+                        <table class="table" id="history-table">
+                            <thead><tr><th>Fecha</th><th>Usuario</th><th>Origen</th><th>Estado</th><th>Resumen</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Usuarios -->
+                <section class="view" id="view-usuarios" hidden>
+                    <div class="section-head">
+                        <div>
+                            <h2>Usuarios</h2>
+                            <p class="muted"><b>Consulta</b>: panel, histórico y asistente · <b>DBA</b>: además revisión forzada,
+                                detalle técnico y AWR · <b>Administrador</b>: además gestión de usuarios.</p>
+                        </div>
+                    </div>
+                    <form class="panel inline-form" id="new-user-form">
+                        <input id="nu-username" placeholder="Usuario" required>
+                        <input id="nu-password" type="password" placeholder="Contraseña (mín. 10)" autocomplete="new-password" required>
+                        <select id="nu-role">
+                            <option value="consulta">Consulta</option>
+                            <option value="dba">DBA</option>
+                            <option value="administrador">Administrador</option>
+                        </select>
+                        <button class="btn btn-primary" type="submit">Crear usuario</button>
+                    </form>
+                    <div class="table-wrap">
+                        <table class="table" id="users-table">
+                            <thead><tr><th>Usuario</th><th>Rol</th><th>Activo</th><th>Alta</th><th></th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+
+            <!-- ========== Asistente (opcional) ========== -->
+            <aside class="assistant" id="assistant" aria-hidden="true">
+                <div class="assistant-head">
+                    <div>
+                        <strong>Asistente SIMBA</strong>
+                        <small class="muted">Respuestas generadas por IA · solo lectura</small>
+                    </div>
+                    <div>
+                        <button class="icon-btn" id="clear-chat-btn" title="Limpiar conversación">🗑️</button>
+                        <button class="icon-btn" id="assistant-close" title="Cerrar">✕</button>
                     </div>
                 </div>
-            </div>
-
-            <div class="error-banner" id="error-banner" style="display: none;">
-                <div class="error-content">
-                    <span class="error-text" id="error-text"></span>
-                    <button id="retry-btn" class="retry-btn" style="display: none;">🔄 Reintentar</button>
+                <div class="quick" id="quick-actions">
+                    <button data-query="¿Cómo está la base de datos?">Estado general</button>
+                    <button data-query="Veo problemas en las aplicaciones, ¿la base de datos tiene algo?">Veo problemas en las apps</button>
+                    <button data-query="¿Cuánta CPU está usando la base de datos?">CPU</button>
+                    <button data-query="Genera un informe completo en HTML">Informe HTML</button>
+                    <button id="awr-btn" data-min-role="dba" title="También puedes arrastrar el .html aquí">Cargar AWR</button>
+                    <input type="file" id="awr-input" accept=".html,.htm" hidden>
                 </div>
-            </div>
-
-            <div class="chat-input-area">
-                <div class="input-wrapper">
-                    <textarea 
-                        id="user-input" 
-                        placeholder="Escribe tu pregunta aquí..." 
-                        rows="3"
-                        autocomplete="off"
-                    ></textarea>
-                    <button id="send-btn" class="send-btn" title="Enviar (Enter + Ctrl)">
-                        <span class="send-icon">➤</span>
-                    </button>
-                </div>
-                <div class="input-info">
-                    <small>💡 Presiona <kbd>Ctrl</kbd>+<kbd>Enter</kbd> para enviar</small>
-                </div>
-            </div>
-        </main>
+                <div class="messages" id="messages"></div>
+                <div class="drop-overlay" id="drop-overlay">📄 Suelta aquí el informe AWR (.html)</div>
+                <form class="composer" id="composer">
+                    <textarea id="chat-input" rows="2" placeholder="Pregunta sobre la base de datos… (Ctrl+Enter)"></textarea>
+                    <button class="btn btn-primary" type="submit" id="send-btn">Enviar</button>
+                </form>
+            </aside>
+        </div>
     </div>
 
+    <div class="toasts" id="toasts"></div>
     <script src="app.js"></script>
 </body>
 </html>

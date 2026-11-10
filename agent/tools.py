@@ -586,9 +586,10 @@ def check_database_health(force_refresh: bool = False) -> str:
       Decir que ve problemas o preguntar por el estado NO es motivo para forzar: la revisión en caché
       tiene como máximo unos minutos y se muestra su hora.
     """
-    from health.checker import format_health, get_health
+    from health.checker import CAN_FORCE_REFRESH, REQUESTER, format_health, get_health
 
-    return format_health(get_health(force_refresh=bool(force_refresh)))
+    force = bool(force_refresh) and CAN_FORCE_REFRESH.get()
+    return format_health(get_health(requested_by=REQUESTER.get(), force_refresh=force))
 
 
 ALL_TOOLS = [

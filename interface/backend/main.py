@@ -3,7 +3,7 @@ Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
 import os
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response, UploadFile, File
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response, UploadFile, File, Request, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +16,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from .api_handlers import ChatHandler, AwrUploadError, awr_max_bytes
+from .auth import AuthError, SessionManager, UserStore, has_role, session_ttl_seconds
 
 load_dotenv()  # permite definir SIMBA_* en .env, igual que db/connection.py
 
@@ -72,6 +73,33 @@ initialization_done = False
 
 SESSION_HEADER = "X-Session-Id"
 
+# ── Usuarios y roles ─────────────────────────────────────────────────────────
+AUTH_COOKIE = "simba_session"
+user_store = UserStore()
+login_sessions = SessionManager()
+
+
+def current_user(request: Request) -> Dict[str, str]:
+    """Usuario de la cookie de sesión; se relee del fichero para que un cambio de rol o una baja apliquen ya."""
+    username = login_sessions.username_for(request.cookies.get(AUTH_COOKIE))
+    user = user_store.get(username) if username else None
+    if not user or not user.get("active", True):
+        raise HTTPException(status_code=401, detail="Sesión no iniciada o caducada.")
+    return {"username": user["username"], "role": user["role"]}
+
+
+def require_role(role: str):
+    def dependency(user: Dict[str, str] = Depends(current_user)) -> Dict[str, str]:
+        if not has_role(user["role"], role):
+            raise HTTPException(status_code=403, detail="No tienes permisos para esta acción.")
+        return user
+    return dependency
+
+
+as_consulta = require_role("consulta")
+as_dba = require_role("dba")
+as_admin = require_role("administrador")
+
 
 def resolve_session(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)) -> str:
     """Resuelve el session id del request y lo propaga en la respuesta."""
@@ -90,6 +118,10 @@ async def startup_event():
         initialization_done = True
     else:
         logger.error(message)
+
+    if user_store.is_empty():
+        logger.warning("No hay usuarios en la web. Crea el primer administrador con: "
+                       "python -m interface.backend.auth crear-usuario <usuario> --rol administrador")
     
     # Servir archivos estáticos del frontend
     try:
@@ -113,9 +145,102 @@ class HealthResponse(BaseModel):
     message: str
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class NewUser(BaseModel):
+    username: str
+    password: str
+    role: str = "consulta"
+
+
+class UserUpdate(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+    password: str | None = None
+
+
+def _cookie_secure() -> bool:
+    return os.environ.get("SIMBA_COOKIE_SECURE", "false").strip().lower() in ("1", "true", "yes")
+
+
+# Autenticación
+@app.post("/api/auth/login")
+async def login(payload: LoginRequest, response: Response):
+    username = payload.username.strip()
+    if login_sessions.is_locked(username):
+        raise HTTPException(status_code=429, detail="Demasiados intentos fallidos. Espera unos minutos.")
+    user = await run_in_threadpool(user_store.authenticate, username, payload.password)
+    if not user:
+        login_sessions.register_failure(username)
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
+    login_sessions.clear_failures(username)
+    token = login_sessions.create(user["username"])
+    response.set_cookie(AUTH_COOKIE, token, max_age=session_ttl_seconds(), httponly=True,
+                        samesite="strict", secure=_cookie_secure())
+    logger.info("login user=%s role=%s", user["username"], user["role"])
+    return {"username": user["username"], "role": user["role"]}
+
+
+@app.post("/api/auth/logout")
+async def logout(request: Request, response: Response):
+    login_sessions.revoke(request.cookies.get(AUTH_COOKIE))
+    response.delete_cookie(AUTH_COOKIE)
+    return {"success": True}
+
+
+@app.get("/api/auth/me")
+async def me(user: Dict[str, str] = Depends(current_user)):
+    return user
+
+
+# Gestión de usuarios (administrador)
+@app.get("/api/users")
+async def list_users(_: Dict[str, str] = Depends(as_admin)):
+    return {"users": user_store.list()}
+
+
+@app.post("/api/users", status_code=201)
+async def create_user(payload: NewUser, admin: Dict[str, str] = Depends(as_admin)):
+    try:
+        user = await run_in_threadpool(user_store.create, payload.username.strip(), payload.password, payload.role)
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    logger.info("user_created by=%s user=%s role=%s", admin["username"], user["username"], user["role"])
+    return user
+
+
+@app.patch("/api/users/{username}")
+async def update_user(username: str, payload: UserUpdate, admin: Dict[str, str] = Depends(as_admin)):
+    try:
+        user = await run_in_threadpool(
+            lambda: user_store.update(username, role=payload.role, active=payload.active, password=payload.password))
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if payload.active is False or payload.password is not None:
+        login_sessions.revoke_user(username)
+    logger.info("user_updated by=%s user=%s", admin["username"], username)
+    return user
+
+
+@app.delete("/api/users/{username}")
+async def delete_user(username: str, admin: Dict[str, str] = Depends(as_admin)):
+    if username == admin["username"]:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propio usuario.")
+    try:
+        user_store.delete(username)
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    login_sessions.revoke_user(username)
+    logger.info("user_deleted by=%s user=%s", admin["username"], username)
+    return {"success": True}
+
+
 # Endpoints
 @app.get("/api/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(_: Dict[str, str] = Depends(as_consulta)):
     """Verifica el estado del servidor, la conexión a BD y el agente LLM por separado."""
     return {
         "status": "ok",
@@ -128,7 +253,8 @@ async def health_check():
 
 
 @app.post("/api/chat")
-async def chat(payload: ChatMessage, response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):
+async def chat(payload: ChatMessage, response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+               user: Dict[str, str] = Depends(as_consulta)):
     """
     Endpoint principal de chat.
     Recibe pregunta del usuario y retorna respuesta del agente.
@@ -147,7 +273,12 @@ async def chat(payload: ChatMessage, response: Response, x_session_id: str | Non
     
     session_id = resolve_session(response, x_session_id)
     try:
-        # Procesar mensaje dentro de la sesión aislada del cliente
+        # Procesar mensaje dentro de la sesión aislada del cliente; si el agente revisa el estado,
+        # queda registrado a nombre del usuario y solo un DBA puede forzar una revisión nueva.
+        from health.checker import CAN_FORCE_REFRESH, REQUESTER
+
+        REQUESTER.set(user["username"])
+        CAN_FORCE_REFRESH.set(has_role(user["role"], "dba"))
         result = chat_handler.process_message(session_id, payload.message)
         
         return result
@@ -158,7 +289,7 @@ async def chat(payload: ChatMessage, response: Response, x_session_id: str | Non
 
 
 @app.post("/api/reset-connection")
-async def reset_connection():
+async def reset_connection(_: Dict[str, str] = Depends(as_dba)):
     """
     Reintenta solo el/los componente(s) (BD y/o LLM) que estén fallando.
     """
@@ -179,7 +310,7 @@ async def reset_connection():
 
 
 @app.get("/api/download-report/{filename}")
-async def download_report(filename: str):
+async def download_report(filename: str, _: Dict[str, str] = Depends(as_consulta)):
     """
     Descarga un informe HTML generado.
     """
@@ -212,6 +343,7 @@ async def upload_awr(
     response: Response,
     file: UploadFile = File(...),
     x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+    _: Dict[str, str] = Depends(as_dba),
 ):
     """Recibe un informe AWR (RF021), lo guarda en awr/ y devuelve su resumen. No requiere BD ni LLM."""
     session_id = resolve_session(response, x_session_id)
@@ -238,7 +370,8 @@ async def upload_awr(
         raise HTTPException(status_code=500, detail="No se pudo analizar el informe AWR.", headers=session_headers)
 
 @app.get("/api/chat-history")
-async def get_chat_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):
+async def get_chat_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+                           _: Dict[str, str] = Depends(as_consulta)):
     """Retorna el historial de chat de la sesión del cliente."""
     session_id = resolve_session(response, x_session_id)
     return {
@@ -247,7 +380,8 @@ async def get_chat_history(response: Response, x_session_id: str | None = Header
 
 
 @app.post("/api/clear-history")
-async def clear_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER)):
+async def clear_history(response: Response, x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+                        _: Dict[str, str] = Depends(as_consulta)):
     """Limpia el historial de chat de la sesión del cliente."""
     session_id = resolve_session(response, x_session_id)
     chat_handler.sessions.clear(session_id)
@@ -258,7 +392,7 @@ async def clear_history(response: Response, x_session_id: str | None = Header(de
 
 
 @app.get("/api/health-history")
-async def health_history(limit: int = 20):
+async def health_history(limit: int = 20, _: Dict[str, str] = Depends(as_consulta)):
     """Histórico de preguntas sobre el estado de la BBDD y lo que se devolvió en cada una."""
     from health.store import HealthStore
 
@@ -270,16 +404,30 @@ async def health_check_now(
     response: Response,
     force: bool = False,
     x_session_id: str | None = Header(default=None, alias=SESSION_HEADER),
+    user: Dict[str, str] = Depends(as_consulta),
 ):
-    """Revisión de estado (reutiliza la caché si no ha caducado; force=true la ignora)."""
+    """Revisión de estado (reutiliza la caché si no ha caducado; force=true la ignora, solo DBA)."""
     from health.checker import get_health
 
-    session_id = resolve_session(response, x_session_id)
+    if force and not has_role(user["role"], "dba"):
+        raise HTTPException(status_code=403, detail="Solo un DBA puede forzar una revisión nueva.")
+    resolve_session(response, x_session_id)
     try:
-        return await run_in_threadpool(get_health, session_id, force)
+        return await run_in_threadpool(get_health, user["username"], force)
     except Exception:
         logger.exception("Error en la revisión de estado")
         raise HTTPException(status_code=500, detail="No se pudo realizar la revisión de estado.")
+
+
+@app.get("/api/health-check/{check_id}/detail")
+async def health_check_detail(check_id: int, _: Dict[str, str] = Depends(as_dba)):
+    """Datos técnicos de cada comprobación de una revisión (solo DBA)."""
+    from health.store import HealthStore
+
+    check = await run_in_threadpool(HealthStore().get_check, check_id)
+    if not check:
+        raise HTTPException(status_code=404, detail="Revisión no encontrada.")
+    return {"id": check["id"], "created_at": check["created_at"], "raw": check.get("raw", {})}
 
 
 # Manejador de errores global

@@ -68,6 +68,12 @@ class HealthStore:
         last = checks[-1]
         return {k: last[k] for k in ("id", "created_at", "overall", "summary", "findings")}
 
+    def get_check(self, check_id: int) -> Optional[dict[str, Any]]:
+        """Revisión completa, incluidos los datos crudos de cada comprobación (detalle técnico)."""
+        with self._lock:
+            checks = self._read(self._checks)
+        return next((c for c in checks if c.get("id") == check_id), None)
+
     def log_request(self, requested_by: str, check_id: int, from_cache: bool) -> None:
         with self._lock:
             self._append(self._requests, {

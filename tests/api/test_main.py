@@ -204,7 +204,7 @@ def test_awr_upload_works_without_database(api_client, awr_dir):
     assert response.status_code == 200
 
 
-def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):
+def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch, login_as):
     """Integración real (sin mockear initialize_agent): arranca con el LLM caído,
     /api/chat debe dar 503 hasta que /api/reset-connection lo repare, y luego funcionar."""
     from interface.backend import main as main_module
@@ -228,6 +228,7 @@ def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):
     monkeypatch.setattr(main_module.chat_handler, "sessions", SessionStore())
 
     with TestClient(main_module.app) as client:
+        login_as(client)
         # Arranque: BD ok, LLM caído -> /api/chat debe fallar con 503
         assert main_module.chat_handler.db_connected is True
         assert main_module.chat_handler.llm_ready is False

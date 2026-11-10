@@ -25,7 +25,7 @@ def healthy_db(monkeypatch):
     monkeypatch.setattr(q, "get_tablespace_usage", lambda: [
         {"TABLESPACE_NAME": "USERS", "CONTENTS": "PERMANENT", "USED_PCT": 40}])
     monkeypatch.setattr(q, "get_cluster_inactive_sessions", lambda: 3)
-    monkeypatch.setattr(q, "get_recent_ora_errors", lambda: [])
+    monkeypatch.setattr(q, "get_recent_problems", lambda: [])
     monkeypatch.setattr(q, "get_current_wait_events", lambda: [])
     monkeypatch.setattr(q, "get_long_operations", lambda: [])
 
@@ -121,3 +121,34 @@ def test_format_health_shows_time_and_origin(healthy_db, store):
     text = checker.format_health(checker.get_health("ana", store=store))
 
     assert "recién ejecutada" in text and "UTC" in text
+
+
+def test_agent_tool_ignores_force_refresh_when_role_cannot_force(monkeypatch):
+    from agent.tools import check_database_health
+
+    calls = []
+    monkeypatch.setattr(checker, "get_health",
+                        lambda requested_by="anonimo", force_refresh=False: calls.append((requested_by, force_refresh))
+                        or {"from_cache": True, "created_at": "x", "overall": "OK", "summary": "", "findings": []})
+    checker.REQUESTER.set("user_consulta")
+    checker.CAN_FORCE_REFRESH.set(False)
+    try:
+        check_database_health.invoke({"force_refresh": True})
+    finally:
+        checker.REQUESTER.set("anonimo")
+        checker.CAN_FORCE_REFRESH.set(True)
+    assert calls == [("user_consulta", False)]
+
+
+def test_recurring_oracle_problem_is_not_treated_as_new(healthy_db, monkeypatch):
+    monkeypatch.setattr(q, "get_recent_problems", lambda: [
+        {"PROBLEMA": "ORA 600 [20084]", "PRIMERA_VEZ": "2026-04-13 16:28:15", "DIAS_DESDE_PRIMERA": 210},
+    ])
+    errors = [f for f in checker.run_checks()["findings"] if f["area"] == "Errores"]
+    assert [f["severity"] for f in errors] == ["WARNING"]
+    assert "desde 2026-04-13" in errors[0]["message"]
+
+    monkeypatch.setattr(q, "get_recent_problems", lambda: [
+        {"PROBLEMA": "ORA 600 [kcbz]", "PRIMERA_VEZ": "2026-11-10 10:00:00", "DIAS_DESDE_PRIMERA": 0.2},
+    ])
+    assert checker.run_checks()["overall"] == "CRITICAL"

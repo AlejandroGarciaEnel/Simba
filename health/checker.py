@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -28,7 +30,12 @@ LIMIT_WARN, LIMIT_CRIT = 80.0, 90.0
 TABLESPACE_WARN, TABLESPACE_CRIT = 85.0, 95.0
 BLOCK_WARN_SECONDS, BLOCK_CRIT_SECONDS = 30, 300
 INACTIVE_WARN = 20
-CRITICAL_ORA = ("ORA-00600", "ORA-07445", "ORA-04031", "ORA-01555", "ORA-00257")
+CRITICAL_ORA = {600, 7445, 4030, 4031, 1555, 257}
+NEW_PROBLEM_DAYS = 1
+
+# Quién pregunta cuando la revisión la pide el agente (la web lo fija por petición; en consola, valores por defecto).
+REQUESTER: ContextVar[str] = ContextVar("health_requester", default="anonimo")
+CAN_FORCE_REFRESH: ContextVar[bool] = ContextVar("health_can_force_refresh", default=True)
 
 
 def cache_ttl() -> timedelta:
@@ -143,16 +150,30 @@ def _eval_inactive(total: int) -> list[dict]:
     return [_finding("Sesiones", OK, f"{total} sesiones inactivas más de 30 min.")]
 
 
+def _is_critical_problem(key: Any) -> bool:
+    match = re.match(r"ORA[- ]0*(\d+)", str(key or ""))
+    return bool(match) and int(match.group(1)) in CRITICAL_ORA
+
+
 def _eval_errors(rows: list[dict]) -> list[dict]:
+    """Un problema nuevo (aparecido en el último día) es lo relevante; uno recurrente se informa sin alarma."""
     if not rows:
-        return [_finding("Errores", OK, "Sin errores ORA- en la última hora del alert log.")]
-    critical = [r for r in rows if any(c in str(r.get("MENSAJE")) for c in CRITICAL_ORA)]
-    sev = CRITICAL if critical else WARNING
-    rec = "errores_ora_graves" if critical else "errores_ora"
-    last = rows[0]
-    return [_finding("Errores", sev, f"{len(rows)} error(es) ORA- en la última hora. Último: "
-                     f"[{last.get('FECHA')}] {last.get('MENSAJE')}",
-                     rec)]
+        return [_finding("Errores", OK, "Sin incidencias de Oracle (ADR) en la última hora en la instancia consultada.")]
+    new = [r for r in rows if _num(r.get("DIAS_DESDE_PRIMERA")) < NEW_PROBLEM_DAYS]
+    recurring = [r for r in rows if r not in new]
+    findings = []
+    if new:
+        critical = any(_is_critical_problem(r.get("PROBLEMA")) for r in new)
+        names = ", ".join(f"{r.get('PROBLEMA')} (desde {r.get('PRIMERA_VEZ')})" for r in new)
+        findings.append(_finding("Errores", CRITICAL if critical else WARNING,
+                                 f"Problema(s) nuevo(s) de Oracle con incidencias en la última hora: {names}.",
+                                 "errores_ora_graves" if critical else "errores_ora"))
+    if recurring:
+        names = ", ".join(f"{r.get('PROBLEMA')} (se repite desde {str(r.get('PRIMERA_VEZ'))[:10]})" for r in recurring)
+        findings.append(_finding("Errores", WARNING,
+                                 f"Problema(s) conocido(s) que siguen produciéndose: {names}.",
+                                 "errores_ora_recurrentes"))
+    return findings
 
 
 def _eval_waits(rows: list[dict]) -> list[dict]:
@@ -179,7 +200,7 @@ _CHECKS: list[tuple[str, Callable[[], Any], Callable[[Any], list[dict]]]] = [
     ("limites", lambda: q.get_resource_limits(), _eval_limits),
     ("tablespaces", lambda: q.get_tablespace_usage(), _eval_tablespaces),
     ("sesiones_inactivas", lambda: q.get_cluster_inactive_sessions(), _eval_inactive),
-    ("errores_ora", lambda: q.get_recent_ora_errors(), _eval_errors),
+    ("errores_ora", lambda: q.get_recent_problems(), _eval_errors),
     ("esperas", lambda: q.get_current_wait_events(), _eval_waits),
     ("operaciones_largas", lambda: q.get_long_operations(), _eval_longops),
 ]
