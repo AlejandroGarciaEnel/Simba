@@ -607,9 +607,35 @@ def get_query_improvement_recommendations(sql_id: str = "") -> str:
     return format_query_improvements(get_query_improvements(), sql_id=sql_id or None)
 
 
+@tool
+def analyze_sql_performance(sql_id: str) -> str:
+    """
+    Análisis técnico de una SQL problemática (solo usuarios DBA): planes de ejecución en memoria y en el AWR
+    (30 días) con su rendimiento, tendencia diaria, estadísticas e índices de las tablas, cursores hijos,
+    baselines/perfiles y, si es PL/SQL, las SQL hijas que más tiempo consumen. Devuelve hallazgos y sugerencias.
+    Usar cuando pidan analizar, diagnosticar o explicar por qué una SQL_ID concreta es lenta o costosa.
+    Parámetro obligatorio:
+    - sql_id: identificador de 13 caracteres.
+    """
+    from health.checker import CAN_FORCE_REFRESH
+    from query_reports.advisor import get_query_improvements
+    from query_reports.sql_analysis import analyze_sql, format_sql_analysis
+
+    if not CAN_FORCE_REFRESH.get():
+        return "El análisis detallado de SQL está reservado al rol DBA. Pide a un DBA que lo revise."
+    sid = (sql_id or "").strip().lower()
+    board = get_query_improvements().get("board") or []
+    context = next((c for c in board if c["sql_id"] == sid), None)
+    try:
+        return format_sql_analysis(analyze_sql(sid, context=context))
+    except ValueError as exc:
+        return str(exc)
+
+
 ALL_TOOLS = [
     check_database_health,
     get_query_improvement_recommendations,
+    analyze_sql_performance,
     get_cpu_usage,
     get_top_cpu_queries,
     get_top_cpu_sessions,

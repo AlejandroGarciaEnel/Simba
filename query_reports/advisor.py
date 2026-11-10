@@ -32,6 +32,7 @@ EXECS_BATCH, GETS_PER_EXEC_BATCH = 100, 10_000_000
 STALLED_WEEKS = 4
 # Una completada que sigue en el top se considera «sin efecto» si su CPU no ha bajado al menos este porcentaje.
 REAPPEAR_MIN_DROP = 0.30
+BOARD_STATES = ["Sin seguimiento", "Pendiente", "En análisis", "En curso", "Pendiente de", "Completado"]
 
 _MONTHS = {"ene": 1, "jan": 1, "feb": 2, "mar": 3, "abr": 4, "apr": 4, "may": 5, "jun": 6, "jul": 7, "ago": 8,
            "aug": 8, "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12, "dec": 12}
@@ -222,7 +223,7 @@ def _date_text(value: Any) -> str:
 def build_recommendations(weeks: list[dict[str, Any]], tracking: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Cruza la última semana con el seguimiento. Función pura: fácil de probar sin ficheros."""
     if not weeks:
-        return {"week": None, "items": [], "kpis": {}, "note": FUNCTIONAL_NOTE}
+        return {"week": None, "items": [], "kpis": {}, "board": [], "states": BOARD_STATES, "note": FUNCTIONAL_NOTE}
     last = weeks[-1]
     previous = weeks[-2]["rows"] if len(weeks) > 1 else {}
     items = []
@@ -281,6 +282,7 @@ def build_recommendations(weeks: list[dict[str, Any]], tracking: dict[str, dict[
                           "hallazgos": [_finding(kind, message)]})
 
     items.sort(key=lambda i: (i["cpu_h"] is None, -(i["cpu_h"] or 0)))
+    board = _build_board(last, weeks, tracking, {i["sql_id"]: i["hallazgos"] for i in items})
     total_cpu = sum(r["cpu_h"] or 0 for r in last["rows"].values())
     untracked = [s for s in last["rows"] if s not in tracking] if tracking else []
     kinds = [f["tipo"] for i in items for f in i["hallazgos"]]
@@ -299,8 +301,51 @@ def build_recommendations(weeks: list[dict[str, Any]], tracking: dict[str, dict[
             "seguimiento_configurado": bool(tracking),
         },
         "items": items,
+        "board": board,
+        "states": BOARD_STATES + sorted({c["estado"] for c in board} - set(BOARD_STATES)),
         "note": FUNCTIONAL_NOTE,
     }
+
+
+def _text(value: Any) -> str | None:
+    text = _date_text(value)
+    return text if text and text.lower() != "none" else None
+
+
+def _build_board(last: dict, weeks: list[dict], tracking: dict, findings: dict) -> list[dict[str, Any]]:
+    """Una tarjeta por SQL del seguimiento o del último top (solo lectura: el seguimiento lo edita su proyecto)."""
+    cards = []
+    for sid in sorted(set(tracking) | set(last["rows"])):
+        t = tracking.get(sid) or {}
+        row = last["rows"].get(sid) or {}
+        cards.append({
+            "sql_id": sid,
+            "estado": _text(t.get("ESTADO")) or "Sin seguimiento",
+            "esquema": row.get("esquema") or _text(t.get("ESQUEMA")),
+            "prioridad": (row.get("prioridad") or _text(t.get("PRIORIDAD")) or "").upper() or None,
+            "persona": _text(t.get("PERSONA")),
+            "pendiente_de": _text(t.get("PENDIENTE DE (QUIÉN)")),
+            "en_top": sid in last["rows"],
+            "cpu_h": row.get("cpu_h"),
+            "pct_cpu": row.get("pct_cpu"),
+            "ejecuciones": row.get("ejecuciones"),
+            "cpu_media_h": _num(t.get("CPU H/SEM (MEDIA)")),
+            "ejec_media": _num(t.get("EJEC/SEM (MEDIA)")),
+            "semanas_top": int(_num(t.get("SEMANAS EN TOP")) or 0) if t else sum(1 for w in weeks if sid in w["rows"]),
+            "primera_semana": _text(t.get("PRIMERA SEMANA")),
+            "ultima_semana": _text(t.get("ÚLTIMA SEMANA")) or (last["label"] if row else None),
+            "fecha_completado": _text(t.get("FECHA COMPLETADO")),
+            "tiempo_antes_s": _num(t.get("TIEMPO ANTES (S)")),
+            "tiempo_despues_s": _num(t.get("TIEMPO DESPUÉS (S)")),
+            "mejora_pct": _num(t.get("MEJORA %")),
+            "comprobacion": _text(t.get("COMPROBACIÓN")),
+            "query_mejora": _text(t.get("QUERY DE MEJORA")),
+            "notas": _text(t.get("NOTAS")),
+            "notas_analisis": _text(t.get("NOTAS ANÁLISIS (ÚLTIMO LISTADO)")) or row.get("notas") or None,
+            "sql_text": row.get("sql_text") or " ".join(str(t.get("SQL_TEXT") or "").split())[:300],
+            "hallazgos": findings.get(sid, []),
+        })
+    return cards
 
 
 @lru_cache(maxsize=4)

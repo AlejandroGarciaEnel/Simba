@@ -109,9 +109,15 @@
                         </div>
                     </div>
                     <div class="counters" id="queries-counters"></div>
-                    <p class="note">ℹ️ Calculado a partir de los Excel del informe semanal (sin IA y sin consultar la BD).
-                        Son sugerencias: antes de actuar, deben verificarlas el DBA y el equipo funcional.</p>
-                    <div class="cards" id="queries-cards"></div>
+                    <div class="subtabs" id="queries-modes">
+                        <button data-mode="tablero" class="active">🗂️ Tablero</button>
+                        <button data-mode="lista">📋 Lista</button>
+                        <button data-mode="recomendaciones">💡 Recomendaciones</button>
+                    </div>
+                    <p class="note">ℹ️ Calculado a partir de los Excel del informe semanal y del seguimiento (sin IA). El tablero es de
+                        solo lectura: los cambios de estado se hacen en el seguimiento. Son sugerencias: antes de actuar, deben
+                        verificarlas el DBA y el equipo funcional.</p>
+                    <div id="queries-body"></div>
                 </section>
 
                 <!-- Histórico -->
@@ -198,6 +204,14 @@
     </div>
 
     <div class="toasts" id="toasts"></div>
+    <dialog class="sql-dialog" id="sql-dialog">
+        <div class="sql-dialog-head">
+            <div id="sql-dialog-title"></div>
+            <button class="icon-btn" id="sql-dialog-close" title="Cerrar">✕</button>
+        </div>
+        <div class="sql-dialog-body" id="sql-dialog-body"></div>
+    </dialog>
+
     <script src="app.js"></script>
 </body>
 </html>

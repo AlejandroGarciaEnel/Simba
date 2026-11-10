@@ -267,3 +267,23 @@ body.assistant-open .assistant { width: var(--assistant-w); }
     border-radius: 8px; padding: 8px 10px; max-height: 6.5em; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 #queries-search { min-width: 220px; }
+
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.board-col { background: var(--surface-2); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 200px; }
+.board-col > header { display: flex; justify-content: space-between; align-items: center; padding: 2px 4px 6px; }
+.board-card { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: grid; gap: 4px; cursor: pointer; color: inherit; font: inherit; box-shadow: var(--shadow); }
+.board-card:hover { border-color: var(--primary); }
+.board-card-out { opacity: .7; }
+.board-card-head { display: flex; justify-content: space-between; gap: 6px; }
+.board-hint { color: var(--warn); }
+.table-click tbody tr { cursor: pointer; }
+.table-click tbody tr:hover { background: var(--surface-2); }
+.table-click th { cursor: pointer; }
+.sql-dialog { width: min(1100px, 94vw); max-height: 90vh; border: 1px solid var(--border); border-radius: var(--radius); padding: 0; background: var(--surface); color: inherit; }
+.sql-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.sql-dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 2; }
+.sql-dialog-body { padding: 16px 20px; display: grid; gap: 12px; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
+.facts dt { color: var(--muted); }
+.pre-line { white-space: pre-line; }
+.plan-text { max-height: 24em; white-space: pre; }

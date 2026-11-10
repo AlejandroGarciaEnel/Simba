@@ -1070,3 +1070,145 @@ def get_cluster_inactive_sessions() -> int:
     """
     rows = _fetchall_as_dicts(sql)
     return int(rows[0].get("TOTAL_INACTIVAS") or 0) if rows else 0
+
+
+# ── Análisis de una SQL concreta (solo DBA en la web) ─────────────────────────
+_PLAN_TABLES_CTE = """
+    with objs as (
+        select object_owner owner, object_name name, object_type from gv$sql_plan
+         where sql_id = :sql_id and object_owner is not null
+        union
+        select object_owner, object_name, object_type from dba_hist_sql_plan
+         where sql_id = :sql_id and dbid = (select dbid from v$database) and object_owner is not null
+    ), tabs as (
+        select owner, name table_name from objs where object_type like 'TABLE%'
+        union
+        select i.table_owner, i.table_name
+          from objs o join dba_indexes i on i.owner = o.owner and i.index_name = o.name
+         where o.object_type like 'INDEX%'
+    )"""
+
+
+def get_sql_cursors(sql_id: str) -> list[dict[str, Any]]:
+    """Cursores en memoria de una SQL_ID en todas las instancias (GV$SQL)."""
+    sql = """
+        select inst_id instancia, child_number hijo, plan_hash_value,
+               parsing_schema_name esquema, module modulo, executions ejecuciones,
+               round(elapsed_time / 1e6, 1) elapsed_s, round(cpu_time / 1e6, 1) cpu_s,
+               buffer_gets lecturas, disk_reads lecturas_disco, rows_processed filas,
+               optimizer_cost coste, sql_profile, sql_plan_baseline,
+               is_bind_sensitive, is_bind_aware, last_active_time ultima_actividad,
+               dbms_lob.substr(sql_fulltext, 2000, 1) sql_texto
+          from gv$sql
+         where sql_id = :sql_id
+         order by last_active_time desc nulls last
+         fetch first 50 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id})
+
+
+def get_sql_plan_history(sql_id: str, days: int = 30) -> list[dict[str, Any]]:
+    """Rendimiento por plan de ejecución en el AWR de los últimos días."""
+    sql = """
+        select st.plan_hash_value,
+               sum(st.executions_delta) ejecuciones,
+               round(sum(st.elapsed_time_delta) / nullif(sum(st.executions_delta), 0) / 1e6, 4) elapsed_s_ejec,
+               round(sum(st.cpu_time_delta) / 1e6 / 3600, 2) cpu_h,
+               round(sum(st.buffer_gets_delta) / nullif(sum(st.executions_delta), 0)) lecturas_ejec,
+               round(sum(st.rows_processed_delta) / nullif(sum(st.executions_delta), 0), 1) filas_ejec,
+               min(sn.begin_interval_time) primera_vez, max(sn.end_interval_time) ultima_vez
+          from dba_hist_sqlstat st
+          join dba_hist_snapshot sn
+            on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+         where st.sql_id = :sql_id
+           and st.dbid = (select dbid from v$database)
+           and sn.begin_interval_time > systimestamp - numtodsinterval(:days, 'DAY')
+         group by st.plan_hash_value
+         order by cpu_h desc nulls last
+         fetch first 20 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "days": days})
+
+
+def get_sql_daily_trend(sql_id: str, days: int = 14) -> list[dict[str, Any]]:
+    """Evolución diaria (AWR) de ejecuciones, tiempo por ejecución y planes usados."""
+    sql = """
+        select trunc(sn.begin_interval_time) dia,
+               sum(st.executions_delta) ejecuciones,
+               round(sum(st.elapsed_time_delta) / nullif(sum(st.executions_delta), 0) / 1e6, 4) elapsed_s_ejec,
+               round(sum(st.cpu_time_delta) / 1e6 / 3600, 2) cpu_h,
+               count(distinct st.plan_hash_value) planes
+          from dba_hist_sqlstat st
+          join dba_hist_snapshot sn
+            on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+         where st.sql_id = :sql_id
+           and st.dbid = (select dbid from v$database)
+           and sn.begin_interval_time > systimestamp - numtodsinterval(:days, 'DAY')
+         group by trunc(sn.begin_interval_time)
+         order by dia"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "days": days})
+
+
+def get_sql_plan_lines(sql_id: str, plan_hash_value: int) -> list[dict[str, Any]]:
+    """Líneas de un plan: de memoria (GV$SQL_PLAN) si está, si no del AWR."""
+    sql = """
+        with mem as (
+            select inst_id, child_number from gv$sql_plan
+             where sql_id = :sql_id and plan_hash_value = :phv and id = 0
+             fetch first 1 rows only
+        )
+        select 'memoria' origen, p.id, p.depth profundidad, p.operation operacion, p.options opciones,
+               p.object_owner propietario, p.object_name objeto, p.cost coste, p.cardinality filas_estimadas,
+               substr(p.access_predicates, 1, 400) acceso, substr(p.filter_predicates, 1, 400) filtro
+          from gv$sql_plan p join mem m on p.inst_id = m.inst_id and p.child_number = m.child_number
+         where p.sql_id = :sql_id and p.plan_hash_value = :phv
+        union all
+        select 'awr', h.id, h.depth, h.operation, h.options, h.object_owner, h.object_name, h.cost, h.cardinality,
+               substr(h.access_predicates, 1, 400), substr(h.filter_predicates, 1, 400)
+          from dba_hist_sql_plan h
+         where h.sql_id = :sql_id and h.plan_hash_value = :phv and h.dbid = (select dbid from v$database)
+           and not exists (select 1 from mem)
+         order by 2
+         fetch first 300 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "phv": plan_hash_value})
+
+
+def get_sql_table_stats(sql_id: str) -> list[dict[str, Any]]:
+    """Estadísticas de las tablas que aparecen en los planes de la SQL."""
+    sql = _PLAN_TABLES_CTE + """
+        select t.owner propietario, t.table_name tabla, s.num_rows filas, s.blocks bloques,
+               s.last_analyzed ultimo_analisis, s.stale_stats obsoletas, s.stattype_locked bloqueadas,
+               (select m.inserts + m.updates + m.deletes from dba_tab_modifications m
+                 where m.table_owner = t.owner and m.table_name = t.table_name and m.partition_name is null
+                   and rownum = 1) modificaciones
+          from tabs t
+          join dba_tab_statistics s
+            on s.owner = t.owner and s.table_name = t.table_name and s.object_type = 'TABLE'
+         order by s.num_rows desc nulls last
+         fetch first 30 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id})
+
+
+def get_sql_table_indexes(sql_id: str) -> list[dict[str, Any]]:
+    """Índices de las tablas que usa la SQL, con sus columnas y estado."""
+    sql = _PLAN_TABLES_CTE + """
+        select i.table_owner propietario, i.table_name tabla, i.index_name indice, i.uniqueness unicidad,
+               i.status estado, i.visibility visibilidad, i.last_analyzed ultimo_analisis,
+               (select listagg(c.column_name, ', ') within group (order by c.column_position)
+                  from dba_ind_columns c where c.index_owner = i.owner and c.index_name = i.index_name) columnas
+          from dba_indexes i
+          join tabs t on i.table_owner = t.owner and i.table_name = t.table_name
+         order by i.table_name, i.index_name
+         fetch first 80 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id})
+
+
+def get_plsql_child_sqls(sql_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    """SQL que ejecuta por dentro una llamada PL/SQL, según el ASH en memoria (últimas horas)."""
+    sql = """
+        select a.sql_id, count(*) muestras,
+               (select substr(max(s.sql_text), 1, 200) from gv$sql s where s.sql_id = a.sql_id) sql_texto
+          from gv$active_session_history a
+         where a.top_level_sql_id = :sql_id and a.sql_id is not null and a.sql_id <> :sql_id
+         group by a.sql_id
+         order by muestras desc
+         fetch first :limit rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "limit": limit})

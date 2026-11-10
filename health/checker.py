@@ -35,6 +35,7 @@ NEW_PROBLEM_DAYS = 1
 
 # Quién pregunta cuando la revisión la pide el agente (la web lo fija por petición; en consola, valores por defecto).
 REQUESTER: ContextVar[str] = ContextVar("health_requester", default="anonimo")
+# True si quien pregunta tiene rol DBA o superior: permite forzar revisiones y analizar SQL concretas.
 CAN_FORCE_REFRESH: ContextVar[bool] = ContextVar("health_can_force_refresh", default=True)
 
 

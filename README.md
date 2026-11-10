@@ -433,3 +433,8 @@ La parte más relevante del sistema está en:
 - interface/backend/api_handlers.py para chat y sesiones
 - report/generator.py para reportes HTML
 
+
+### Seguimiento de queries: tablero, lista y análisis DBA
+
+- La pestaña **Queries** ofrece tres vistas del seguimiento semanal: **Tablero** (columnas por estado, estilo Jira), **Lista** (tabla ordenable) y **Recomendaciones**. El tablero es de solo lectura: el Excel de seguimiento sigue siendo la fuente.
+- Rol **dba** o superior: `GET /api/sql-analysis/{sql_id}` y la herramienta del agente `analyze_sql_performance` analizan una SQL en la BD (solo SELECT). Revisan los cursores, los planes AWR de 30 días, la tendencia de 14 días, las estadísticas, los índices, los baselines y las SQL hijas de PL/SQL. Con esos datos generan recomendaciones que el equipo funcional debe verificar.

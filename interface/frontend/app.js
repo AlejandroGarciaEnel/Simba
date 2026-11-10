@@ -367,15 +367,26 @@ const QUERY_KIND = {
 };
 const fmtNum = (n, d = 0) => n == null ? "n/d" : Number(n).toLocaleString("es-ES", { maximumFractionDigits: d });
 let queriesData = null;
+let queriesMode = "tablero";
+let listSort = { key: "cpu_h", dir: -1 };
 
 async function loadQueries() {
-    $("queries-cards").replaceChildren(el("p", { class: "muted", text: "Leyendo informes…" }));
+    $("queries-body").replaceChildren(el("p", { class: "muted", text: "Leyendo informes…" }));
     try {
         queriesData = await api("/query-improvements");
         renderQueries();
     } catch (err) {
-        $("queries-cards").replaceChildren(el("p", { class: "form-error", text: err.message }));
+        $("queries-body").replaceChildren(el("p", { class: "form-error", text: err.message }));
     }
+}
+
+function filteredCards(list) {
+    const text = $("queries-search").value.trim().toLowerCase();
+    const group = $("queries-filter").value;
+    return list
+        .map((i) => ({ ...i, hallazgos: (i.hallazgos || []).filter((f) => !group || QUERY_KIND[f.tipo]?.group === group) }))
+        .filter((i) => !group || i.hallazgos.length)
+        .filter((i) => !text || [i.sql_id, i.esquema, i.persona].some((v) => String(v || "").toLowerCase().includes(text)));
 }
 
 function renderQueries() {
@@ -383,7 +394,7 @@ function renderQueries() {
     if (!data) return;
     if (data.error || !data.week) {
         $("queries-counters").replaceChildren();
-        $("queries-cards").replaceChildren(el("p", { class: "muted",
+        $("queries-body").replaceChildren(el("p", { class: "muted",
             text: data.error || "No hay ningún informe semanal en la carpeta configurada." }));
         return;
     }
@@ -396,18 +407,66 @@ function renderQueries() {
         counter(String(k.completadas_que_reaparecen), `Completadas aún en el top · ${k.completadas_fuera_del_top} ya fuera`),
         counter(String(k.estancadas), "Estancadas (varias semanas)"),
     );
+    document.querySelectorAll("#queries-modes button").forEach((b) => b.classList.toggle("active", b.dataset.mode === queriesMode));
+    const body = queriesMode === "tablero" ? renderBoard(filteredCards(data.board || []), data.states || [])
+        : queriesMode === "lista" ? renderList(filteredCards(data.board || []))
+        : renderRecommendations(filteredCards(data.items));
+    $("queries-body").replaceChildren(body);
+}
 
-    const text = $("queries-search").value.trim().toLowerCase();
-    const group = $("queries-filter").value;
-    const items = data.items
-        .map((i) => ({ ...i, hallazgos: i.hallazgos.filter((f) => !group || QUERY_KIND[f.tipo]?.group === group) }))
-        .filter((i) => i.hallazgos.length)
-        .filter((i) => !text || [i.sql_id, i.esquema, i.persona].some((v) => String(v || "").toLowerCase().includes(text)));
-    if (!items.length) {
-        $("queries-cards").replaceChildren(el("p", { class: "muted", text: "Ninguna SQL coincide con el filtro." }));
-        return;
-    }
-    $("queries-cards").replaceChildren(...items.map(renderQueryCard));
+function renderRecommendations(items) {
+    if (!items.length) return el("p", { class: "muted", text: "Ninguna SQL coincide con el filtro." });
+    return el("div", { class: "cards" }, items.map(renderQueryCard));
+}
+
+function cardMetric(c) {
+    return c.en_top ? `${fmtNum(c.cpu_h, 1)} h CPU esta semana` : c.cpu_media_h != null ? `${fmtNum(c.cpu_media_h, 1)} h/sem (media) · fuera del top` : "fuera del top";
+}
+
+function renderBoard(cards, states) {
+    const cols = states.filter((s) => s !== "Sin seguimiento" || cards.some((c) => c.estado === s));
+    return el("div", { class: "board" }, cols.map((stateName) => {
+        const list = cards.filter((c) => c.estado === stateName)
+            .sort((a, b) => (b.cpu_h ?? b.cpu_media_h ?? 0) - (a.cpu_h ?? a.cpu_media_h ?? 0));
+        return el("section", { class: "board-col" },
+            el("header", {}, el("strong", { text: stateName }), el("span", { class: "tag", text: String(list.length) })),
+            list.map((c) => el("button", { class: `board-card ${c.en_top ? "" : "board-card-out"}`, onclick: () => openSqlDetail(c) },
+                el("div", { class: "board-card-head" }, el("span", { class: "mono", text: c.sql_id }),
+                    el("span", { class: "tag", text: c.prioridad || "—" })),
+                el("small", { class: "muted", text: [c.esquema, c.persona || "sin asignar"].filter(Boolean).join(" · ") }),
+                el("small", { text: `${cardMetric(c)} · ${c.semanas_top} sem.` }),
+                c.mejora_pct != null ? el("small", { text: `Mejora ${fmtNum(c.mejora_pct, 1)} %` }) : null,
+                c.hallazgos.length ? el("small", { class: "board-hint", text: `💡 ${c.hallazgos.map((f) => QUERY_KIND[f.tipo]?.label || f.tipo).join(", ")}` }) : null)));
+    }));
+}
+
+const LIST_COLUMNS = [
+    ["sql_id", "SQL_ID"], ["estado", "Estado"], ["prioridad", "Prioridad"], ["esquema", "Esquema"], ["persona", "Responsable"],
+    ["cpu_h", "CPU semana (h)"], ["cpu_media_h", "CPU media (h/sem)"], ["semanas_top", "Semanas top"], ["en_top", "En top"],
+    ["fecha_completado", "Completado"], ["mejora_pct", "Mejora %"], ["hallazgos", "Recomendaciones"],
+];
+
+function renderList(cards) {
+    const value = (c, key) => key === "hallazgos" ? c.hallazgos.length : c[key];
+    const sorted = [...cards].sort((a, b) => {
+        const x = value(a, listSort.key), y = value(b, listSort.key);
+        if (x == null) return 1;
+        if (y == null) return -1;
+        return (x > y ? 1 : x < y ? -1 : 0) * listSort.dir;
+    });
+    const fmt = (c, key) => {
+        const v = value(c, key);
+        if (key === "en_top") return v ? "Sí" : "No";
+        if (["cpu_h", "cpu_media_h", "mejora_pct"].includes(key)) return v == null ? "" : fmtNum(v, 1);
+        return v == null ? "" : String(v);
+    };
+    return el("div", { class: "table-wrap" }, el("table", { class: "table table-compact table-click" },
+        el("thead", {}, el("tr", {}, LIST_COLUMNS.map(([key, label]) => el("th", {
+            text: label + (listSort.key === key ? (listSort.dir > 0 ? " ▲" : " ▼") : ""),
+            onclick: () => { listSort = { key, dir: listSort.key === key ? -listSort.dir : -1 }; renderQueries(); },
+        })))),
+        el("tbody", {}, sorted.map((c) => el("tr", { onclick: () => openSqlDetail(c) },
+            LIST_COLUMNS.map(([key]) => el("td", { class: key === "sql_id" ? "mono" : null, text: fmt(c, key) })))))));
 }
 
 function renderQueryCard(i) {
@@ -427,18 +486,104 @@ function renderQueryCard(i) {
         el("p", { class: "muted", text: [i.esquema, `Estado: ${i.estado}`, i.persona].filter(Boolean).join(" · ") }),
         metrics ? el("small", { class: "muted", text: metrics }) : null,
         i.sql_text ? el("pre", { class: "sql-snippet", text: i.sql_text }) : null,
-        el("ul", { class: "findings" }, i.hallazgos.map((f) => el("li", {},
-            el("span", { class: `sev-pill sev-${SEV[QUERY_KIND[f.tipo]?.sev || "INFO"].cls}`, text: QUERY_KIND[f.tipo]?.label || f.tipo }),
-            el("p", { text: f.mensaje }),
-            f.accion ? el("div", { class: "rec" },
-                el("span", { class: "rec-label", text: "Sugerencia" }),
-                el("p", { text: f.accion }),
-                f.responsable ? el("small", { class: "muted", text: `Responsable: ${f.responsable}` }) : null) : null))),
-        el("footer", {}, el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente", onclick: () => {
-            openAssistant();
-            $("chat-input").value = `Sobre la SQL_ID ${i.sql_id} del informe semanal: ¿qué me recomiendas revisar primero y por qué?`;
-            $("chat-input").focus();
-        } })));
+        renderFindings(i.hallazgos),
+        el("footer", {}, el("button", { class: "btn btn-link", text: "Ver ficha", onclick: () => openSqlDetail(i) }),
+            " ", askButton(i.sql_id)));
+}
+
+function renderFindings(list, kindLabel = (t) => QUERY_KIND[t]?.label || t.replace(/^analisis_/, "").replaceAll("_", " ")) {
+    return el("ul", { class: "findings" }, list.map((f) => el("li", {},
+        el("span", { class: `sev-pill sev-${SEV[QUERY_KIND[f.tipo]?.sev || (f.urgencia === "Alta" ? "WARNING" : "INFO")].cls}`, text: kindLabel(f.tipo) }),
+        el("p", { text: f.mensaje }),
+        f.accion ? el("div", { class: "rec" },
+            el("span", { class: "rec-label", text: "Sugerencia" }),
+            el("p", { text: f.accion }),
+            f.responsable ? el("small", { class: "muted", text: `Responsable: ${f.responsable}` }) : null) : null)));
+}
+
+function askButton(sqlId) {
+    return el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente", onclick: () => {
+        $("sql-dialog").close();
+        openAssistant();
+        $("chat-input").value = can("dba")
+            ? `Analiza la SQL_ID ${sqlId} y explícame qué revisarías primero y por qué.`
+            : `Sobre la SQL_ID ${sqlId} del informe semanal: ¿qué me recomiendas revisar primero y por qué?`;
+        $("chat-input").focus();
+    } });
+}
+
+function simpleTable(columns, rows, fmt = {}) {
+    return el("div", { class: "table-wrap" }, el("table", { class: "table table-compact" },
+        el("thead", {}, el("tr", {}, columns.map(([, label]) => el("th", { text: label })))),
+        el("tbody", {}, rows.map((r) => el("tr", {}, columns.map(([key]) => {
+            const v = r[key];
+            return el("td", { text: fmt[key] ? fmt[key](v, r) : v == null ? "" : typeof v === "number" ? fmtNum(v, 2) : String(v).replace("T", " ").slice(0, 19) });
+        })))))));
+}
+
+function openSqlDetail(card) {
+    const c = (queriesData?.board || []).find((b) => b.sql_id === card.sql_id) || card;
+    $("sql-dialog-title").replaceChildren(
+        el("h2", { class: "mono", text: c.sql_id }),
+        el("span", { class: "muted", text: [c.estado, c.prioridad, c.esquema, c.persona].filter(Boolean).join(" · ") }));
+    const facts = [
+        ["En el top", c.en_top == null ? "" : c.en_top ? "Sí" : "No"], ["CPU esta semana", c.cpu_h != null ? `${fmtNum(c.cpu_h, 1)} h (${fmtNum(c.pct_cpu, 1)} %)` : ""],
+        ["CPU media", c.cpu_media_h != null ? `${fmtNum(c.cpu_media_h, 1)} h/sem` : ""], ["Ejecuciones/sem (media)", c.ejec_media != null ? fmtNum(c.ejec_media) : ""],
+        ["Semanas en top", c.semanas_top], ["Primera / última semana", [c.primera_semana, c.ultima_semana].filter(Boolean).join(" → ")],
+        ["Pendiente de", c.pendiente_de], ["Completado", c.fecha_completado],
+        ["Tiempo antes / después", c.tiempo_antes_s != null || c.tiempo_despues_s != null ? `${fmtNum(c.tiempo_antes_s, 2)} s → ${fmtNum(c.tiempo_despues_s, 2)} s` : ""],
+        ["Mejora", c.mejora_pct != null ? `${fmtNum(c.mejora_pct, 1)} %` : ""], ["Comprobación", c.comprobacion],
+    ].filter(([, v]) => v !== "" && v != null);
+    const analysis = el("div", { id: "sql-analysis" });
+    $("sql-dialog-body").replaceChildren(
+        el("dl", { class: "facts" }, facts.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: String(v) })])),
+        c.sql_text ? el("pre", { class: "sql-snippet", text: c.sql_text }) : null,
+        c.query_mejora ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Propuesta de mejora" }), el("p", { text: c.query_mejora })) : null,
+        c.notas || c.notas_analisis ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Notas del seguimiento" }),
+            el("p", { class: "pre-line", text: [c.notas, c.notas_analisis].filter(Boolean).join("\n\n") })) : null,
+        c.hallazgos?.length ? el("h3", { text: "Recomendaciones del informe" }) : null,
+        c.hallazgos?.length ? renderFindings(c.hallazgos) : null,
+        el("div", { class: "inline-form" },
+            can("dba") ? el("button", { class: "btn btn-primary", text: "🔬 Analizar SQL en la BD", onclick: () => loadSqlAnalysis(c.sql_id, analysis) }) : null,
+            askButton(c.sql_id)),
+        analysis);
+    $("sql-dialog").showModal();
+}
+
+async function loadSqlAnalysis(sqlId, box, force = false) {
+    box.replaceChildren(el("p", { class: "muted", text: "Analizando en Oracle (solo lectura, unos segundos)…" }));
+    try {
+        const r = await api(`/sql-analysis/${encodeURIComponent(sqlId)}${force ? "?force=true" : ""}`);
+        const s = r.resumen;
+        const topIds = new Set((queriesData?.board || []).filter((b) => b.en_top).map((b) => b.sql_id));
+        const planText = (r.plan.lineas || []).map((l) =>
+            `${String(l.ID).padStart(3)} ${"  ".repeat(l.PROFUNDIDAD || 0)}${l.OPERACION} ${l.OPCIONES || ""} ${l.OBJETO ? `${l.PROPIETARIO}.${l.OBJETO}` : ""}`.trimEnd()
+            + (l.COSTE != null ? `  (coste ${l.COSTE}${l.FILAS_ESTIMADAS != null ? `, ${l.FILAS_ESTIMADAS} filas est.` : ""})` : "")).join("\n");
+        box.replaceChildren(
+            el("h3", { text: `Análisis técnico · ${r.generado.replace("T", " ")}` }),
+            el("p", { class: "muted", text: `${s.cursores_en_memoria} cursores en memoria · ${s.planes_awr} planes en el AWR (30 días) · plan principal ${s.plan_principal ?? "n/d"}${s.origen_plan ? ` (${s.origen_plan})` : ""} · baseline: ${s.baselines.join(", ") || "no"} · perfil: ${s.perfiles.join(", ") || "no"}` }),
+            r.hallazgos.length ? renderFindings(r.hallazgos) : el("p", { text: "Las reglas actuales no detectan nada destacable." }),
+            r.plsql_hijas.length ? el("h4", { text: "SQL hijas (ASH, últimas horas)" }) : null,
+            r.plsql_hijas.length ? simpleTable([["SQL_ID", "SQL_ID"], ["MUESTRAS", "Muestras"], ["SQL_TEXTO", "SQL"]], r.plsql_hijas,
+                { SQL_ID: (v) => `${v}${topIds.has(v) ? " (en el top)" : ""}`, MUESTRAS: (v) => fmtNum(v) }) : null,
+            r.planes.length ? el("h4", { text: "Planes en el AWR (30 días)" }) : null,
+            r.planes.length ? simpleTable([["PLAN_HASH_VALUE", "Plan"], ["EJECUCIONES", "Ejec."], ["ELAPSED_S_EJEC", "s/ejec."], ["LECTURAS_EJEC", "Lecturas/ejec."], ["FILAS_EJEC", "Filas/ejec."], ["CPU_H", "CPU (h)"], ["PRIMERA_VEZ", "Desde"], ["ULTIMA_VEZ", "Hasta"]], r.planes,
+                { PLAN_HASH_VALUE: (v) => String(v), EJECUCIONES: (v) => fmtNum(v), LECTURAS_EJEC: (v) => fmtNum(v) }) : null,
+            r.tendencia.length ? el("h4", { text: "Tendencia diaria (14 días)" }) : null,
+            r.tendencia.length ? simpleTable([["DIA", "Día"], ["EJECUCIONES", "Ejec."], ["ELAPSED_S_EJEC", "s/ejec."], ["CPU_H", "CPU (h)"], ["PLANES", "Planes"]], r.tendencia,
+                { DIA: (v) => String(v).slice(0, 10), EJECUCIONES: (v) => fmtNum(v), PLANES: (v) => String(v) }) : null,
+            planText ? el("details", {}, el("summary", { text: `Plan ${r.plan.plan_hash_value}` }), el("pre", { class: "sql-snippet plan-text", text: planText })) : null,
+            r.tablas.length ? el("details", {}, el("summary", { text: `Tablas (${r.tablas.length})` }),
+                simpleTable([["PROPIETARIO", "Propietario"], ["TABLA", "Tabla"], ["FILAS", "Filas"], ["ULTIMO_ANALISIS", "Último análisis"], ["OBSOLETAS", "Obsoletas"], ["BLOQUEADAS", "Bloqueadas"], ["MODIFICACIONES", "Cambios"]], r.tablas,
+                    { FILAS: (v) => fmtNum(v), MODIFICACIONES: (v) => fmtNum(v), ULTIMO_ANALISIS: (v) => String(v ?? "").slice(0, 10) })) : null,
+            r.indices.length ? el("details", {}, el("summary", { text: `Índices (${r.indices.length})` }),
+                simpleTable([["TABLA", "Tabla"], ["INDICE", "Índice"], ["COLUMNAS", "Columnas"], ["UNICIDAD", "Único"], ["ESTADO", "Estado"], ["VISIBILIDAD", "Visible"]], r.indices)) : null,
+            Object.keys(r.errores).length ? el("p", { class: "form-error", text: `No se pudo consultar: ${Object.keys(r.errores).join(", ")}` }) : null,
+            el("p", { class: "note", text: r.note }),
+            el("button", { class: "btn", text: "↻ Repetir análisis", onclick: () => loadSqlAnalysis(sqlId, box, true) }));
+    } catch (err) {
+        box.replaceChildren(el("p", { class: "form-error", text: err.message }));
+    }
 }
 
 // ========== Histórico ==========
@@ -723,6 +868,8 @@ function bindEvents() {
     $("detail-panel").addEventListener("toggle", (e) => { if (e.target.open) loadDetail(); });
 
     $("queries-reload").addEventListener("click", loadQueries);
+    document.querySelectorAll("#queries-modes button").forEach((b) => b.addEventListener("click", () => { queriesMode = b.dataset.mode; renderQueries(); }));
+    $("sql-dialog-close").addEventListener("click", () => $("sql-dialog").close());
     $("queries-filter").addEventListener("change", renderQueries);
     $("queries-search").addEventListener("input", renderQueries);
     $("history-reload").addEventListener("click", loadHistory);

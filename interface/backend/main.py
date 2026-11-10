@@ -399,6 +399,23 @@ async def query_improvements(_: Dict[str, str] = Depends(as_consulta)):
     return await run_in_threadpool(get_query_improvements)
 
 
+@app.get("/api/sql-analysis/{sql_id}")
+async def sql_analysis(sql_id: str, force: bool = False, _: Dict[str, str] = Depends(as_dba)):
+    """Análisis de una SQL problemática (planes, AWR, estadísticas, índices). Solo DBA; solo SELECT."""
+    from query_reports.advisor import get_query_improvements
+    from query_reports.sql_analysis import analyze_sql
+
+    def work():
+        board = get_query_improvements().get("board") or []
+        context = next((c for c in board if c["sql_id"] == sql_id.strip().lower()), None)
+        return analyze_sql(sql_id, context=context, force=force)
+
+    try:
+        return await run_in_threadpool(work)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/health-history")
 async def health_history(limit: int = 20, _: Dict[str, str] = Depends(as_consulta)):
     """Histórico de preguntas sobre el estado de la BBDD y lo que se devolvió en cada una."""
