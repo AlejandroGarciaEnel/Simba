@@ -952,6 +952,56 @@ def get_blocked_waits(limit: int = 10) -> list[dict[str, Any]]:
     return _fetchall_as_dicts(sql, {"limit": limit})
 
 
+def get_root_blockers(limit: int = 10) -> list[dict[str, Any]]:
+    """
+    Sesiones que originan los bloqueos (bloqueante final de la cadena, en cualquier nodo del RAC), con quién
+    son, qué SQL ejecutan o ejecutaron por última vez, a cuántas sesiones bloquean y sobre qué objeto.
+    """
+    sql = """
+        WITH esperas AS (
+            SELECT final_blocking_instance AS inst_b, final_blocking_session AS sid_b,
+                   seconds_in_wait, event, row_wait_obj#
+            FROM gv$session
+            WHERE final_blocking_session IS NOT NULL
+              AND final_blocking_session_status = 'VALID'
+        ),
+        agrupado AS (
+            SELECT inst_b, sid_b,
+                   COUNT(*)                                                        AS bloqueadas,
+                   MAX(seconds_in_wait)                                            AS max_espera,
+                   MAX(event)          KEEP (DENSE_RANK LAST ORDER BY seconds_in_wait) AS evento,
+                   MAX(row_wait_obj#)  KEEP (DENSE_RANK LAST ORDER BY seconds_in_wait) AS obj_id
+            FROM esperas
+            GROUP BY inst_b, sid_b
+        )
+        SELECT
+            b.inst_id                                   AS instancia,
+            b.sid                                       AS sid,
+            b.serial#                                   AS serial,
+            b.username                                  AS usuario,
+            b.osuser                                    AS usuario_so,
+            b.machine                                   AS maquina,
+            b.program                                   AS programa,
+            b.module                                    AS modulo,
+            b.status                                    AS estado,
+            b.last_call_et                              AS segundos_ultima_llamada,
+            NVL(b.sql_id, b.prev_sql_id)                AS sql_id,
+            CASE WHEN b.sql_id IS NULL THEN 'última ejecutada' ELSE 'en ejecución' END AS tipo_sql,
+            (SELECT SUBSTR(s.sql_text, 1, 200) FROM gv$sql s
+              WHERE s.inst_id = b.inst_id AND s.sql_id = NVL(b.sql_id, b.prev_sql_id) AND ROWNUM = 1) AS sql_texto,
+            a.bloqueadas                                AS sesiones_bloqueadas,
+            a.max_espera                                AS segundos_espera,
+            a.evento                                    AS evento,
+            o.owner || '.' || o.object_name             AS objeto
+        FROM agrupado a
+        JOIN gv$session b ON b.inst_id = a.inst_b AND b.sid = a.sid_b
+        LEFT JOIN dba_objects o ON o.object_id = a.obj_id
+        ORDER BY a.max_espera DESC
+        FETCH FIRST :limit ROWS ONLY
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
 def get_current_wait_events(limit: int = 5) -> list[dict[str, Any]]:
     """Eventos de espera de las sesiones de usuario activas ahora mismo."""
     sql = """

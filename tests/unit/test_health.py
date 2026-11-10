@@ -19,7 +19,7 @@ def store(tmp_path):
 @pytest.fixture
 def healthy_db(monkeypatch):
     monkeypatch.setattr(q, "get_cpu_usage", lambda: 20.0)
-    monkeypatch.setattr(q, "get_blocked_waits", lambda: [])
+    monkeypatch.setattr(q, "get_root_blockers", lambda: [])
     monkeypatch.setattr(q, "get_resource_limits", lambda: [
         {"RESOURCE_NAME": "sessions", "CURRENT_UTILIZATION": 50, "LIMIT_VALUE": "1000"}])
     monkeypatch.setattr(q, "get_tablespace_usage", lambda: [
@@ -37,17 +37,26 @@ def test_healthy_database_points_outside_oracle(healthy_db):
     assert "fuera de Oracle" in result["summary"]
 
 
-def test_inactive_blocker_is_reported_as_uncommitted_transaction(healthy_db, monkeypatch):
-    monkeypatch.setattr(q, "get_blocked_waits", lambda: [{
-        "SID_BLOQUEADA": 10, "SID_BLOQUEANTE": 345, "SEGUNDOS_ESPERA": 600,
-        "ESTADO_BLOQUEANTE": "INACTIVE", "SEGUNDOS_ULTIMA_LLAMADA": 1320,
-        "USUARIO_BLOQUEANTE": "APP", "PROGRAMA_BLOQUEANTE": "x", "MAQUINA_BLOQUEANTE": "m"}])
+def test_every_blocking_session_is_reported_with_its_owner(healthy_db, monkeypatch):
+    monkeypatch.setattr(q, "get_root_blockers", lambda: [
+        {"INSTANCIA": 1, "SID": 345, "SERIAL": 991, "USUARIO": "APP", "USUARIO_SO": "jboss", "MAQUINA": "srv01",
+         "PROGRAMA": "JDBC", "MODULO": "facturacion", "ESTADO": "INACTIVE", "SEGUNDOS_ULTIMA_LLAMADA": 1320,
+         "SQL_ID": "abc123", "TIPO_SQL": "última ejecutada", "SQL_TEXTO": "UPDATE pedidos SET ...",
+         "SESIONES_BLOQUEADAS": 4, "SEGUNDOS_ESPERA": 600, "EVENTO": "enq: TX - row lock contention",
+         "OBJETO": "APP.PEDIDOS"},
+        {"INSTANCIA": 2, "SID": 77, "SERIAL": 5, "USUARIO": "BATCH", "MAQUINA": "srv02", "PROGRAMA": "sqlplus",
+         "ESTADO": "ACTIVE", "SESIONES_BLOQUEADAS": 1, "SEGUNDOS_ESPERA": 20, "SQL_ID": "def456",
+         "TIPO_SQL": "en ejecución"},
+    ])
 
     result = checker.run_checks()
+    blocking = next(f for f in result["findings"] if f["area"] == "Bloqueos")
 
     assert result["overall"] == checker.CRITICAL
+    assert [d["sid_serial"] for d in blocking["details"]] == ["345,991", "77,5"]
+    assert "5 sesión(es) bloqueada(s) por 2" in blocking["message"]
+    assert "srv01" in result["summary"] and "APP.PEDIDOS" in result["summary"] and "srv02" in result["summary"]
     assert "sin commit" in result["summary"]
-    assert "último recurso" in result["summary"]
     assert checker.FUNCTIONAL_NOTE in result["summary"]
 
 

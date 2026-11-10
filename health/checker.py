@@ -61,11 +61,14 @@ def _recommendations() -> dict[str, dict[str, Any]]:
     return {k: v for k, v in data.items() if isinstance(v, dict)}
 
 
-def _finding(area: str, severity: str, message: str, rec: str = "") -> dict[str, str]:
+def _finding(area: str, severity: str, message: str, rec: str = "", details: list | None = None) -> dict[str, Any]:
     r = _recommendations().get(rec, {})
-    return {"area": area, "severity": severity, "message": message,
-            "action": r.get("accion", ""), "urgency": r.get("urgencia", ""),
-            "owner": r.get("responsable", "")}
+    finding = {"area": area, "severity": severity, "message": message,
+               "action": r.get("accion", ""), "urgency": r.get("urgencia", ""),
+               "owner": r.get("responsable", "")}
+    if details:
+        finding["details"] = details
+    return finding
 
 
 def _num(value: Any) -> float:
@@ -85,24 +88,54 @@ def _eval_cpu(data: float) -> list[dict]:
 
 
 def _eval_blocking(rows: list[dict]) -> list[dict]:
+    """Una fila por sesión bloqueante raíz; se listan todas para poder localizar a su propietario."""
     if not rows:
         return [_finding("Bloqueos", OK, "No hay sesiones bloqueadas.")]
     worst = max(rows, key=lambda r: _num(r.get("SEGUNDOS_ESPERA")))
     wait = int(_num(worst.get("SEGUNDOS_ESPERA")))
-    blockers = {r.get("SID_BLOQUEANTE") for r in rows}
+    blocked = int(sum(_num(r.get("SESIONES_BLOQUEADAS")) for r in rows))
     severity = CRITICAL if wait >= BLOCK_CRIT_SECONDS else WARNING if wait >= BLOCK_WARN_SECONDS else INFO
-    msg = (f"{len(rows)} sesión(es) bloqueada(s) por {len(blockers)} bloqueante(s). "
-           f"La espera mayor es de {wait} s (SID {worst.get('SID_BLOQUEADA')} esperando a SID "
-           f"{worst.get('SID_BLOQUEANTE')}, usuario {worst.get('USUARIO_BLOQUEANTE')}, "
-           f"programa {worst.get('PROGRAMA_BLOQUEANTE')}, máquina {worst.get('MAQUINA_BLOQUEANTE')}).")
+    msg = (f"{blocked} sesión(es) bloqueada(s) por {len(rows)} sesión(es) bloqueante(s). "
+           f"La espera mayor es de {wait} s.")
     rec = "bloqueo_corto"
-    if worst.get("ESTADO_BLOQUEANTE") == "INACTIVE" and wait >= BLOCK_WARN_SECONDS:
-        idle = int(_num(worst.get("SEGUNDOS_ULTIMA_LLAMADA")))
-        msg += f" El bloqueante está INACTIVE desde hace {idle} s."
-        rec = "bloqueo_transaccion_abierta"
-    elif wait >= BLOCK_WARN_SECONDS:
-        rec = "bloqueo_en_ejecucion"
-    return [_finding("Bloqueos", severity, msg, rec)]
+    if wait >= BLOCK_WARN_SECONDS:
+        idle = worst.get("ESTADO") == "INACTIVE"
+        rec = "bloqueo_transaccion_abierta" if idle else "bloqueo_en_ejecucion"
+    details = [{
+        "instancia": r.get("INSTANCIA"),
+        "sid_serial": f"{r.get('SID')},{r.get('SERIAL')}",
+        "usuario": r.get("USUARIO"),
+        "usuario_so": r.get("USUARIO_SO"),
+        "maquina": r.get("MAQUINA"),
+        "programa": r.get("PROGRAMA"),
+        "modulo": r.get("MODULO"),
+        "estado": r.get("ESTADO"),
+        "inactiva_s": int(_num(r.get("SEGUNDOS_ULTIMA_LLAMADA"))) if r.get("ESTADO") == "INACTIVE" else None,
+        "bloquea_a": int(_num(r.get("SESIONES_BLOQUEADAS"))),
+        "espera_max_s": int(_num(r.get("SEGUNDOS_ESPERA"))),
+        "objeto": r.get("OBJETO"),
+        "evento": r.get("EVENTO"),
+        "sql_id": r.get("SQL_ID"),
+        "tipo_sql": r.get("TIPO_SQL"),
+        "sql_texto": r.get("SQL_TEXTO"),
+    } for r in rows]
+    return [_finding("Bloqueos", severity, msg, rec, details)]
+
+
+def describe_blocker(d: dict) -> str:
+    """Línea legible de una sesión bloqueante para el resumen y el asistente."""
+    parts = [f"inst {d['instancia']} SID,serial {d['sid_serial']}", f"usuario {d['usuario']}",
+             f"máquina {d['maquina']}", f"programa {d['programa']}"]
+    if d.get("modulo"):
+        parts.append(f"módulo {d['modulo']}")
+    state = d["estado"] + (f" desde hace {d['inactiva_s']} s" if d.get("inactiva_s") is not None else "")
+    parts.append(f"estado {state}")
+    parts.append(f"bloquea a {d['bloquea_a']} sesión(es), espera máx. {d['espera_max_s']} s")
+    if d.get("objeto"):
+        parts.append(f"objeto {d['objeto']}")
+    if d.get("sql_id"):
+        parts.append(f"SQL {d['tipo_sql']} {d['sql_id']}" + (f": {d['sql_texto']}" if d.get("sql_texto") else ""))
+    return " · ".join(parts)
 
 
 def _eval_limits(rows: list[dict]) -> list[dict]:
@@ -196,7 +229,7 @@ def _eval_longops(rows: list[dict]) -> list[dict]:
 # (clave, función de datos, evaluador)
 _CHECKS: list[tuple[str, Callable[[], Any], Callable[[Any], list[dict]]]] = [
     ("cpu", lambda: q.get_cpu_usage(), _eval_cpu),
-    ("bloqueos", lambda: q.get_blocked_waits(), _eval_blocking),
+    ("bloqueos", lambda: q.get_root_blockers(), _eval_blocking),
     ("limites", lambda: q.get_resource_limits(), _eval_limits),
     ("tablespaces", lambda: q.get_tablespace_usage(), _eval_tablespaces),
     ("sesiones_inactivas", lambda: q.get_cluster_inactive_sessions(), _eval_inactive),
@@ -219,6 +252,8 @@ def _build_summary(overall: str, findings: list[dict]) -> str:
     lines = [f"Estado global: {overall}."]
     for f in ordered:
         line = f"- [{f['severity']}] {f['area']}: {f['message']}"
+        if f["area"] == "Bloqueos":
+            line += "".join(f"\n    Sesión bloqueante: {describe_blocker(d)}" for d in f.get("details", []))
         if f["action"]:
             line += f"\n    Recomendación: {f['action']}"
             extra = "; ".join(x for x in (f.get("urgency") and f"urgencia: {f['urgency']}",
