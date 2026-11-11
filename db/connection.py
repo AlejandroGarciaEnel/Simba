@@ -22,11 +22,23 @@ _connection: Optional[cx_Oracle.Connection] = None
 
 
 def get_connection() -> cx_Oracle.Connection:
-    """Devuelve la conexión activa, creándola si no existe."""
+    """Devuelve la conexión activa, creándola si no existe o si se ha caído."""
     global _connection
+    if _connection is not None and not _is_alive(_connection):
+        close_connection()
     if _connection is None:
         _connection = _create_connection()
     return _connection
+
+
+def _is_alive(conn: cx_Oracle.Connection) -> bool:
+    # La BD/firewall/VPN puede cortar la sesión (p. ej. tras horas inactiva) sin que
+    # el singleton se entere; sin esta comprobación todas las queries fallarían.
+    try:
+        conn.ping()
+        return True
+    except Exception:
+        return False
 
 
 def _create_connection() -> cx_Oracle.Connection:
