@@ -334,8 +334,11 @@ function renderCpuNodes(rows) {
 function renderAreaCard({ area, items, severity }) {
     const relevant = items.filter((f) => f.severity !== "OK");
     const shown = relevant.length ? relevant : items;
-    const list = el("ul", { class: "findings" },
-        shown.map((f) => el("li", {},
+    const cls = SEV[severity].cls;
+    const extra = shown.length > 1 ? ` (+${shown.length - 1})` : "";
+
+    const body = el("div", { class: "row-body" },
+        shown.map((f) => el("div", { class: "row-finding" },
             relevant.length > 1 ? sevPill(f.severity) : null,
             el("p", { text: f.message }),
             f.area === "Bloqueos" && f.details ? renderBlockers(f.details) : null,
@@ -346,21 +349,20 @@ function renderAreaCard({ area, items, severity }) {
                 (f.urgency || f.owner) ? el("small", { class: "muted",
                     text: [f.urgency && `Urgencia: ${f.urgency}`, f.owner && `Responsable: ${f.owner}`]
                         .filter(Boolean).join(" · ") }) : null,
-            ) : null,
-        )));
+            ) : null)),
+        SEV[severity].order >= 1 ? el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente",
+            onclick: () => askAbout(area, shown) }) : null);
 
-    const ask = el("button", {
-        class: "btn btn-link",
-        text: "💬 Preguntar al asistente",
-        onclick: () => askAbout(area, shown),
-    });
-
-    return el("article", { class: `card sev-border-${SEV[severity].cls}` },
-        el("header", {},
-            el("h3", {}, el("span", { class: "area-icon", text: AREA_ICON[area] || "•" }), area),
-            sevPill(severity)),
-        list,
-        SEV[severity].order >= 1 ? el("footer", {}, ask) : null);
+    const cpuNodes = items.find((f) => f.area === "CPU" && f.details);
+    const brief = cpuNodes ? cpuNodes.message.replace(/^CPU:\s*/, "") : shown[0].message;
+    return el("details", { class: `row row-${cls}` },
+        el("summary", {},
+            el("span", { class: "area-icon", text: AREA_ICON[area] || "•" }),
+            el("strong", { class: "row-title", text: area }),
+            el("span", { class: "row-brief", text: brief + extra }),
+            sevPill(severity),
+            el("span", { class: "row-chevron", text: "›" })),
+        body);
 }
 
 function renderBlockers(details) {

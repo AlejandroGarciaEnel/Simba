@@ -124,6 +124,7 @@
     $("next").onclick = () => { st.page += 1; render(); };
     $("reload").onclick = () => load(false);
     $("csv").onclick = exportCsv;
+    $("back").onclick = (e) => { if (history.length > 1 && document.referrer) { e.preventDefault(); history.back(); } };
 
     load(false);
     setInterval(() => { if (!document.hidden) load(true); }, REFRESH_MS);
