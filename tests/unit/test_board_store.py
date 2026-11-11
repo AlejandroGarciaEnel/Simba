@@ -29,3 +29,14 @@ def test_update_saves_and_clears_fields():
 def test_update_rejects_invalid_input(sql_id, changes):
     with pytest.raises(ValueError):
         board_store.update(sql_id, changes, "mario")
+
+
+def test_comentarios_firmados_y_borrado():
+    c = board_store.add_comment("gr2s615xytkx7", " hola ", "ana", "dba")
+    assert c["author"] == "ana" and c["role"] == "dba" and c["text"] == "hola" and c["at"]
+    with pytest.raises(ValueError):
+        board_store.add_comment("gr2s615xytkx7", "  ", "ana", "dba")
+    with pytest.raises(PermissionError):
+        board_store.delete_comment("gr2s615xytkx7", c["id"], "luis", False)
+    assert board_store.delete_comment("gr2s615xytkx7", c["id"], "admin", True)
+    assert board_store.get_all() == {}

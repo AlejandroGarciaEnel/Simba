@@ -460,6 +460,38 @@ async def query_board_update(sql_id: str, body: QueryBoardUpdate, user: Dict[str
     return {"sql_id": sql_id.strip().lower(), "override": record}
 
 
+class QueryCommentIn(BaseModel):
+    text: str
+
+
+@app.post("/api/query-board/{sql_id}/comments")
+async def query_board_add_comment(sql_id: str, body: QueryCommentIn, user: Dict[str, str] = Depends(as_dba)):
+    """Añade un comentario al hilo de una SQL, firmado con el usuario y su rol."""
+    from query_reports import board_store
+
+    try:
+        comment = await run_in_threadpool(board_store.add_comment, sql_id, body.text, user["username"], user["role"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"comment": comment}
+
+
+@app.delete("/api/query-board/{sql_id}/comments/{comment_id}")
+async def query_board_delete_comment(sql_id: str, comment_id: str, user: Dict[str, str] = Depends(as_dba)):
+    from query_reports import board_store
+
+    try:
+        ok = await run_in_threadpool(
+            board_store.delete_comment, sql_id, comment_id, user["username"], user["role"] == "administrador")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    if not ok:
+        raise HTTPException(status_code=404, detail="Comentario no encontrado.")
+    return {"ok": True}
+
+
 @app.get("/api/sql-analysis/{sql_id}")
 async def sql_analysis(sql_id: str, force: bool = False, _: Dict[str, str] = Depends(as_dba)):
     """Análisis de una SQL problemática (planes, AWR, estadísticas, índices). Solo DBA; solo SELECT."""

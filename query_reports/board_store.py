@@ -11,12 +11,15 @@ import json
 import os
 import re
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "query_board.json"
 FIELDS = {"estado": 40, "prioridad": 20, "persona": 80, "nota": 4000}
+COMMENT_MAX = 2000
+COMMENTS_MAX = 200
 SQL_ID_RE = re.compile(r"^[a-z0-9]{8,16}$")
 
 _lock = threading.Lock()
@@ -80,10 +83,61 @@ def update(sql_id: str, changes: dict[str, Any], user: str) -> dict[str, Any] | 
                 record[key] = value
         if any(k in record for k in FIELDS):
             record["updated_by"] = user
-            record["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            record["updated_at"] = _now()
+        else:
+            for key in ("updated_by", "updated_at"):
+                record.pop(key, None)
+        if record:
             data[sid] = record
         else:
             data.pop(sid, None)
             record = None
         _save(data)
     return record
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def add_comment(sql_id: str, text: str, user: str, role: str) -> dict[str, Any]:
+    """Añade un comentario firmado (autor, rol y fecha) al hilo de la SQL."""
+    sid = normalize_sql_id(sql_id)
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("El comentario está vacío.")
+    if len(text) > COMMENT_MAX:
+        raise ValueError(f"El comentario supera {COMMENT_MAX} caracteres.")
+    with _lock:
+        data = _load()
+        record = data.setdefault(sid, {})
+        comments = record.setdefault("comments", [])
+        if len(comments) >= COMMENTS_MAX:
+            raise ValueError("Se alcanzó el máximo de comentarios para esta SQL.")
+        comment = {"id": uuid.uuid4().hex[:10], "author": user, "role": role, "at": _now(), "text": text}
+        comments.append(comment)
+        _save(data)
+    return comment
+
+
+def delete_comment(sql_id: str, comment_id: str, user: str, is_admin: bool) -> bool:
+    """Borra un comentario; solo su autor o un administrador."""
+    sid = normalize_sql_id(sql_id)
+    with _lock:
+        data = _load()
+        record = data.get(sid, {})
+        comments = record.get("comments", [])
+        target = next((c for c in comments if c.get("id") == comment_id), None)
+        if not target:
+            return False
+        if target.get("author") != user and not is_admin:
+            raise PermissionError("Solo el autor o un administrador puede borrar el comentario.")
+        record["comments"] = [c for c in comments if c is not target]
+        if not record["comments"]:
+            record.pop("comments")
+        if record:
+            data[sid] = record
+        else:
+            data.pop(sid, None)
+        _save(data)
+    return True
