@@ -341,7 +341,7 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 /* Contenedor del panel de Sesiones (el resto de estilos usa Tailwind) */
 #sessions-dash { display: grid; gap: 16px; padding: 20px; border-radius: 16px;
     background: radial-gradient(900px 400px at 10% -10%, rgba(99, 102, 241, .18), transparent), #0b1020; }
-.content:has(#view-sesiones:not([hidden])) { max-width: none; }
+.content:has(#view-sesiones:not([hidden])) { max-width: 1560px; }
 .area-icon { width: 30px; height: 30px; border-radius: 9px; display: inline-grid; place-items: center; background: var(--surface-2); font-size: 16px; }
 
 /* ========== Estado: filas desplegables ========== */
@@ -349,7 +349,7 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 .counter { padding: 8px 12px; gap: 10px; box-shadow: none; }
 .counter strong { font-size: 20px; }
 .tile-ico { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; }
-.rows { display: grid; gap: 8px; }
+.rows { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
 .row { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); border-left-width: 4px; }
 .row-ok { border-left-color: var(--ok); } .row-info { border-left-color: var(--info); }
 .row-warn { border-left-color: var(--warn); } .row-crit { border-left-color: var(--crit); }
@@ -390,3 +390,7 @@ body.assistant-open .assistant { width: var(--assistant-w); }
     body.assistant-open .assistant { top: 0; }
 }
 @media (max-width: 760px) { .counters { grid-template-columns: repeat(2, 1fr); } .row-brief { display: none; } .row-body { padding-left: 16px; } }
+
+/* evita que tablas anchas (detalle técnico, bloqueos) desborden la rejilla */
+.view > *, .rows, .rows > *, .row-body, .row-finding, .panel { min-width: 0; max-width: 100%; }
+.panel .table-wrap, .row-finding .table-wrap { max-width: 100%; overflow-x: auto; }

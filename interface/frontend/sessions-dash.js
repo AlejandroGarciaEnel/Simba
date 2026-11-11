@@ -79,7 +79,7 @@ const SessionsDash = (() => {
             el("div", { class: "flex items-center justify-between" },
                 el("h4", { class: "text-xs font-medium uppercase tracking-wider text-slate-400", text: title }),
                 el("span", { class: "text-lg", text: icon })),
-            el("div", { class: `mt-2 flex items-baseline gap-1 text-6xl font-semibold tabular-nums ${tone.text}` },
+            el("div", { class: `mt-2 flex items-baseline gap-1 text-4xl font-semibold tabular-nums ${tone.text}` },
                 Number(value).toLocaleString("es-ES"), unit ? el("small", { class: "text-lg font-normal text-slate-500", text: unit }) : null),
             el("div", { class: "mt-1 flex items-center justify-between text-xs text-slate-500" },
                 el("span", { text: hint }),
@@ -108,7 +108,7 @@ const SessionsDash = (() => {
         else setWindow(b - v, b);
         renderCharts();
     }
-    const geom = { W: 900, H: 340, m: { l: 52, r: 16, t: 14, b: 30 } };
+    const geom = { W: 900, H: 250, m: { l: 52, r: 16, t: 14, b: 30 } };
 
     function timeSeries(id, title, series, thresholds) {
         const { W, H, m } = geom;
@@ -267,7 +267,7 @@ const SessionsDash = (() => {
                 stat("Bloqueadas", "⛔", last.blocked, "", last.blocked ? "warn" : "ok", "blocked", "Esperando a un bloqueante"),
                 stat("Bloqueantes", "🔒", last.blockers, "", last.blockers ? "warn" : "ok", "blockers", "Raíz de los bloqueos"),
                 stat("Espera máxima", "⏱️", last.wait, "s", level(last.wait, T.wait), "wait", `Aviso ${T.wait.warn} s · crítico ${T.wait.crit} s`)),
-            el("div", { id: "sessions-charts", class: "grid grid-cols-1 gap-4" }),
+            el("div", { id: "sessions-charts", class: "grid grid-cols-1 gap-4 2xl:grid-cols-2" }),
             inactiveLink(),
             blockersTable(),
             el("p", { class: "text-xs text-slate-500", text: `${points.length} muestras · última revisión ${fmtDate(new Date(last.t).toISOString())} · ` +
