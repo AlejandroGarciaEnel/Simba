@@ -70,6 +70,7 @@
                                 <span class="sev-pill" id="overall-pill">—</span>
                                 <h2 id="overall-title">Cargando revisión…</h2>
                                 <p class="muted" id="overall-meta"></p>
+                                <div id="hero-timeline"></div>
                             </div>
                         </div>
                         <div class="status-actions">
@@ -81,9 +82,10 @@
 
                     <div class="counters" id="counters"></div>
 
+                    <p class="filter-note" id="filter-note" hidden></p>
                     <h3 class="section-title" id="attn-title" hidden>Requiere atención</h3>
                     <div class="rows" id="area-cards"></div>
-                    <h3 class="section-title" id="ok-title" hidden>Todo en orden</h3>
+                    <h3 class="section-title section-toggle" id="ok-title" hidden role="button" tabindex="0"></h3>
                     <div class="rows" id="ok-cards"></div>
                     <p class="foot-note">Los hallazgos son indicios, no causas confirmadas; las recomendaciones son sugerencias que debe verificar el equipo funcional.</p>
 
@@ -228,6 +230,7 @@
     </style>
     <script src="vendor/tailwind.js"></script>
     <script src="sessions-dash.js"></script>
+    <script src="estado-plus.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

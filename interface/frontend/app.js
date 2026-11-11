@@ -274,8 +274,24 @@ function groupByArea(findings) {
         .sort((a, b) => SEV[b.severity].order - SEV[a.severity].order || a.area.localeCompare(b.area));
 }
 
+const ui = { okOpen: false };
+const AREA_LINKS = {
+    Bloqueos: [{ label: "Ver sesiones", view: "sesiones" }],
+    Sesiones: [{ label: "Ver sesiones", view: "sesiones" }, { label: "Listado completo →", href: "/inactivas", role: "dba" }],
+    Esperas: [{ label: "Ver queries", view: "queries" }],
+    "Operaciones largas": [{ label: "Ver queries", view: "queries" }],
+    Errores: [{ label: "Ver histórico", view: "historico" }],
+    Espacio: [{ label: "Ver histórico", view: "historico" }],
+};
+
 function renderHealth() {
     const c = state.check;
+    EstadoPlus.add(c);
+    if (!state.histSeeded) {
+        state.histSeeded = true;
+        EstadoPlus.seed().then((ok) => { if (ok && state.check === c) renderHealth(); });
+    }
+    const openAreas = new Set([...document.querySelectorAll("#view-estado details.row[open]")].map((d) => d.dataset.area));
     const areas = groupByArea(c.findings || []);
     const toReview = areas.filter((a) => SEV[a.severity].order >= 2).length;
 
@@ -286,6 +302,7 @@ function renderHealth() {
     $("overall-meta").textContent =
         `Datos de ${fmtDate(c.created_at)} (${ago(c.created_at)}) · ` +
         (c.from_cache ? "revisión reutilizada (caché)" : "revisión recién ejecutada");
+    $("hero-timeline").replaceChildren(...[EstadoPlus.timeline()].filter(Boolean));
 
     const heroCls = SEV[c.overall]?.cls || "ok";
     $("status-hero").className = `status-hero hero-${heroCls}`;
@@ -293,21 +310,40 @@ function renderHealth() {
 
     const counts = { OK: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
     areas.forEach((a) => { counts[a.severity] += 1; });
+    const filter = EstadoPlus.getFilter();
     const TILE_ICON = { CRITICAL: "🚨", WARNING: "⚠️", INFO: "ℹ️", OK: "✅" };
     $("counters").replaceChildren(
         ...["CRITICAL", "WARNING", "INFO", "OK"].map((s) =>
-            el("div", { class: `counter tile-${SEV[s].cls}${counts[s] ? "" : " tile-zero"}` },
+            el("button", {
+                type: "button",
+                class: `counter tile-${SEV[s].cls}${counts[s] ? "" : " tile-zero"}${filter === SEV[s].cls ? " tile-active" : ""}`,
+                title: filter === SEV[s].cls ? "Quitar filtro" : `Mostrar solo: ${SEV[s].label}`,
+                "aria-pressed": filter === SEV[s].cls ? "true" : "false",
+                onclick: () => { EstadoPlus.setFilter(SEV[s].cls); renderHealth(); },
+            },
                 el("span", { class: "tile-ico", text: TILE_ICON[s] }),
                 el("div", {}, el("strong", { text: counts[s] }), el("span", { text: SEV[s].label }))))
     );
 
-    // CPU siempre visible (es la métrica viva); el resto se separa en "atención" y "en orden"
-    const attention = areas.filter((a) => SEV[a.severity].order >= 1);
-    const fine = areas.filter((a) => SEV[a.severity].order < 1);
+    const visible = (a) => !filter || SEV[a.severity].cls === filter;
+    const attention = areas.filter((a) => SEV[a.severity].order >= 1 && visible(a));
+    const fine = areas.filter((a) => SEV[a.severity].order < 1 && visible(a));
+    const note = $("filter-note");
+    note.hidden = !filter;
+    if (filter) {
+        note.replaceChildren(`Mostrando solo «${EstadoPlus.LABEL[filter]}» · `,
+            el("button", { class: "btn-link-inline", type: "button", text: "ver todo",
+                onclick: () => { EstadoPlus.setFilter(filter); renderHealth(); } }));
+    }
+    const okOpen = ui.okOpen || filter === "ok";
     $("attn-title").hidden = !attention.length;
     $("ok-title").hidden = !fine.length;
+    $("ok-title").textContent = `${okOpen ? "▾" : "▸"} Todo en orden (${fine.length})`;
+    $("ok-title").setAttribute("aria-expanded", String(okOpen));
+    $("ok-cards").hidden = !okOpen || !fine.length;
     $("area-cards").replaceChildren(...attention.map(renderAreaCard));
     $("ok-cards").replaceChildren(...fine.map(renderAreaCard));
+    document.querySelectorAll("#view-estado details.row").forEach((d) => { if (openAreas.has(d.dataset.area)) d.open = true; });
 
     const detail = $("detail-panel");
     detail.dataset.loadedFor = "";
@@ -350,19 +386,37 @@ function renderAreaCard({ area, items, severity }) {
                     text: [f.urgency && `Urgencia: ${f.urgency}`, f.owner && `Responsable: ${f.owner}`]
                         .filter(Boolean).join(" · ") }) : null,
             ) : null)),
-        SEV[severity].order >= 1 ? el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente",
-            onclick: () => askAbout(area, shown) }) : null);
+        el("div", { class: "row-actions-bar" },
+            SEV[severity].order >= 1 ? el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente",
+                onclick: () => askAbout(area, shown) }) : null,
+            (AREA_LINKS[area] || []).filter((l) => !l.role || can(l.role)).map((l) => l.href
+                ? el("a", { class: "btn btn-link", href: l.href, text: l.label })
+                : el("button", { class: "btn btn-link", type: "button", text: l.label, onclick: () => switchView(l.view) }))));
 
     const cpuNodes = items.find((f) => f.area === "CPU" && f.details);
     const brief = cpuNodes ? cpuNodes.message.replace(/^CPU:\s*/, "") : shown[0].message;
-    return el("details", { class: `row row-${cls}` },
+    return el("details", { class: `row row-${cls}`, "data-area": area, ontoggle: onRowToggle },
         el("summary", {},
             el("span", { class: "area-icon", text: AREA_ICON[area] || "•" }),
             el("strong", { class: "row-title", text: area }),
             el("span", { class: "row-brief", text: brief + extra }),
+            EstadoPlus.sparkline(area, cls),
+            EstadoPlus.trendBadge(area),
             sevPill(severity),
             el("span", { class: "row-chevron", text: "›" })),
         body);
+}
+
+// Acordeón: al abrir un área se cierran las demás.
+function onRowToggle(e) {
+    const row = e.currentTarget;
+    if (!row.open) return;
+    document.querySelectorAll("#view-estado details.row[open]").forEach((d) => { if (d !== row) d.open = false; });
+}
+
+function toggleOk() {
+    ui.okOpen = !ui.okOpen;
+    if (state.check) renderHealth();
 }
 
 function renderBlockers(details) {
@@ -970,6 +1024,8 @@ function bindEvents() {
     $("sql-dialog-close").addEventListener("click", () => $("sql-dialog").close());
     $("queries-filter").addEventListener("change", renderQueries);
     $("queries-search").addEventListener("input", renderQueries);
+    $("ok-title").addEventListener("click", toggleOk);
+    $("ok-title").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleOk(); } });
     $("history-reload").addEventListener("click", loadHistory);
     $("history-limit").addEventListener("change", loadHistory);
     $("new-user-form").addEventListener("submit", createUser);
