@@ -1072,6 +1072,28 @@ def get_cluster_inactive_sessions() -> int:
     return int(rows[0].get("TOTAL_INACTIVAS") or 0) if rows else 0
 
 
+def get_cluster_inactive_session_list() -> list[dict[str, Any]]:
+    """Detalle de las sesiones inactivas > 30 min de todos los nodos (GV$), la más antigua primero."""
+    sql = """
+        SELECT s.inst_id                                  AS instancia,
+               s.sid,
+               s.serial#                                  AS serial,
+               s.username                                 AS usuario,
+               s.osuser                                   AS usuario_so,
+               s.machine                                  AS maquina,
+               s.program                                  AS programa,
+               s.module                                   AS modulo,
+               s.last_call_et                             AS inactiva_s,
+               TO_CHAR(s.logon_time, 'YYYY-MM-DD HH24:MI:SS') AS conexion
+        FROM gv$session s
+        WHERE s.status = 'INACTIVE'
+          AND s.last_call_et > 1800
+          AND s.type = 'USER'
+        ORDER BY s.last_call_et DESC
+    """
+    return _fetchall_as_dicts(sql)
+
+
 # ── Análisis de una SQL concreta (solo DBA en la web) ─────────────────────────
 _PLAN_TABLES_CTE = """
     with objs as (

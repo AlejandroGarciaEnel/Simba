@@ -293,3 +293,4 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 /* Contenedor del panel de Sesiones (el resto de estilos usa Tailwind) */
 #sessions-dash { display: grid; gap: 16px; padding: 20px; border-radius: 16px;
     background: radial-gradient(900px 400px at 10% -10%, rgba(99, 102, 241, .18), transparent), #0b1020; }
+.content:has(#view-sesiones:not([hidden])) { max-width: none; }

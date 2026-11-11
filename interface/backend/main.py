@@ -391,6 +391,28 @@ async def clear_history(response: Response, x_session_id: str | None = Header(de
     }
 
 
+_inactive_cache: Dict[str, Any] = {"at": 0.0, "rows": []}
+INACTIVE_LIST_TTL_S = 60
+
+
+@app.get("/api/inactive-sessions")
+async def inactive_sessions(_: Dict[str, str] = Depends(as_dba)):
+    """Listado de sesiones inactivas > 30 min (solo SELECT; caché de 60 s para no cargar Oracle)."""
+    import time
+
+    from db import queries
+
+    if time.monotonic() - _inactive_cache["at"] > INACTIVE_LIST_TTL_S:
+        try:
+            raw = await run_in_threadpool(queries.get_cluster_inactive_session_list)
+            rows = [{k.lower(): v for k, v in r.items()} for r in raw]
+        except Exception:
+            logger.exception("Error al listar sesiones inactivas")
+            raise HTTPException(status_code=500, detail="No se pudo obtener el listado de sesiones inactivas.")
+        _inactive_cache.update(at=time.monotonic(), rows=rows, taken=datetime.now().isoformat(timespec="seconds"))
+    return {"sessions": _inactive_cache["rows"], "taken_at": _inactive_cache.get("taken"), "total": len(_inactive_cache["rows"])}
+
+
 @app.get("/api/query-improvements")
 async def query_improvements(_: Dict[str, str] = Depends(as_consulta)):
     """Recomendaciones sobre el informe semanal de queries y su seguimiento (lectura de Excel, sin LLM)."""
