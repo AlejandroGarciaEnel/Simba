@@ -94,7 +94,7 @@
 
                 <!-- Sesiones inactivas y bloqueadas (estilo Grafana) -->
                 <section class="view" id="view-sesiones" hidden>
-                    <div class="gf-dash" id="sessions-dash"><p class="muted">Cargando datos…</p></div>
+                    <div id="sessions-dash"><p class="muted">Cargando datos…</p></div>
                 </section>
 
                 <!-- Mejoras de queries (informe semanal) -->
@@ -218,6 +218,13 @@
         <div class="sql-dialog-body" id="sql-dialog-body"></div>
     </dialog>
 
+    <style type="text/tailwindcss">
+        /* Solo tema y utilidades: sin "preflight", para no alterar el resto de la web */
+        @layer theme, utilities;
+        @import "tailwindcss/theme.css" layer(theme);
+        @import "tailwindcss/utilities.css" layer(utilities);
+    </style>
+    <script src="vendor/tailwind.js"></script>
     <script src="sessions-dash.js"></script>
     <script src="app.js"></script>
 </body>

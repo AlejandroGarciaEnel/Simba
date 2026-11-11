@@ -1,3 +1,4 @@
+@layer base, theme, utilities;
 /* ========== Tema ========== */
 :root {
     --bg: #f4f6fa;
@@ -29,7 +30,8 @@ body.dark {
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 16px rgba(0, 0, 0, .3);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* En capa para que las utilidades de Tailwind (panel de Sesiones) puedan sobrescribirlo */
+@layer base { * { box-sizing: border-box; margin: 0; padding: 0; } }
 [hidden] { display: none !important; }
 
 html, body {
@@ -288,32 +290,6 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 .pre-line { white-space: pre-line; }
 .plan-text { max-height: 24em; white-space: pre; }
 
-/* ========== Panel tipo Grafana (Sesiones) ========== */
-.gf-dash { --gf-bg: #181b1f; --gf-panel: #22252b; --gf-border: #2c3235; --gf-text: #ccccdc; --gf-muted: #8e8e9e;
-    background: var(--gf-bg); color: var(--gf-text); border-radius: 10px; padding: 12px; display: grid; gap: 12px; }
-.gf-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.gf-row-2 { grid-template-columns: repeat(2, 1fr); }
-.gf-panel { background: var(--gf-panel); border: 1px solid var(--gf-border); border-radius: 4px; padding: 10px 12px; position: relative; min-width: 0; }
-.gf-title { margin: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--gf-text); }
-.gf-value { font-size: 44px; font-weight: 600; line-height: 1.1; }
-.gf-value small { font-size: 18px; margin-left: 4px; color: var(--gf-muted); }
-.gf-hint { margin: 4px 0 6px; font-size: 11.5px; color: var(--gf-muted); }
-.gf-ok { color: #73bf69; } .gf-warn { color: #ff9830; } .gf-crit { color: #f2495c; }
-.gf-spark { width: 100%; height: 40px; display: block; }
-.gf-spark .gf-line { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.gf-spark .gf-area { fill: currentColor; opacity: .15; }
-.gf-plot { position: relative; }
-.gf-svg { width: 100%; height: auto; display: block; }
-.gf-grid { stroke: #ffffff14; } .gf-axis { fill: var(--gf-muted); font-size: 10px; }
-.gf-thr { stroke-dasharray: 5 4; stroke-width: 1; } .gf-thr.gf-warn { stroke: #ff9830; } .gf-thr.gf-crit { stroke: #f2495c; }
-.gf-series { fill: none; stroke-width: 2; stroke-linejoin: round; } .gf-fill { opacity: .12; }
-.gf-cursor { stroke: #ffffff55; }
-.gf-tip { position: absolute; top: 8px; background: #111217; border: 1px solid var(--gf-border); border-radius: 4px;
-    padding: 6px 8px; font-size: 11.5px; pointer-events: none; min-width: 150px; }
-.gf-tip i, .gf-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
-.gf-legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--gf-muted); margin-top: 4px; }
-.gf-empty { color: var(--gf-muted); padding: 24px 0; text-align: center; margin: 0; }
-.gf-foot { margin: 0; font-size: 11.5px; color: var(--gf-muted); }
-.gf-dash .table th, .gf-dash .table td { color: var(--gf-text); border-color: var(--gf-border); background: transparent; }
-@media (max-width: 1000px) { .gf-row, .gf-row-2 { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .gf-row, .gf-row-2 { grid-template-columns: 1fr; } }
+/* Contenedor del panel de Sesiones (el resto de estilos usa Tailwind) */
+#sessions-dash { display: grid; gap: 16px; padding: 20px; border-radius: 16px;
+    background: radial-gradient(900px 400px at 10% -10%, rgba(99, 102, 241, .18), transparent), #0b1020; }
