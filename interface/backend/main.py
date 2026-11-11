@@ -120,6 +120,9 @@ async def startup_event():
     else:
         logger.error(message)
 
+    from . import alerts
+    app.state.alert_task = asyncio.create_task(alerts.watch())
+
     if user_store.is_empty():
         logger.warning("No hay usuarios en la web. Crea el primer administrador con: "
                        "python -m interface.backend.auth crear-usuario <usuario> --rol administrador")
