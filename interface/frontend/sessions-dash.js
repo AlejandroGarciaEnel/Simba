@@ -223,8 +223,8 @@ const SessionsDash = (() => {
                 el("h4", { class: "text-base font-medium text-slate-200", text: "Listado completo de sesiones inactivas" }),
                 el("p", { class: "text-sm text-slate-400", text: "Todas las sesiones inactivas > 30 min de ambos nodos, con filtros, orden y exportación." })),
             allowed
-                ? el("a", { href: "/inactivas", target: "_blank", rel: "noopener",
-                        class: "ml-auto rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-400", text: "Abrir listado ↗" })
+                ? el("a", { href: "/inactivas",
+                        class: "ml-auto rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-400", text: "Abrir listado →" })
                 : el("span", { class: "ml-auto text-xs text-slate-500", text: "Requiere rol dba" }));
     }
     function blockersTable() {
