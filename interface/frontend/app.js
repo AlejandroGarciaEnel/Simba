@@ -515,34 +515,6 @@ function renderBlockers(details) {
             el("tbody", {}, details.map((d) => el("tr", {}, cols.map(([, fn]) => el("td", { text: fn(d) })))))));
 }
 
-const BLOCK_ALERT_S = 300;
-
-// Abre el cliente de correo con el resumen de la última revisión (sin enviar nada desde el servidor).
-function mailStatus() {
-    const c = state.check;
-    if (!c) return;
-    const areas = groupByArea(c.findings || []);
-    const blockers = areas.flatMap((a) => a.items).filter((f) => f.area === "Bloqueos" && f.details)
-        .flatMap((f) => f.details);
-    const long = blockers.filter((d) => (d.espera_max_s || 0) >= BLOCK_ALERT_S);
-    const lines = [
-        `Estado global: ${SEV[c.overall]?.label || c.overall}`,
-        `Revisión: ${fmtDate(c.created_at)}`, "",
-        ...areas.filter((a) => SEV[a.severity].order >= 1).map((a) => `- ${a.area} [${SEV[a.severity].label}]: ${a.items[0].message}`),
-    ];
-    if (blockers.length) {
-        lines.push("", "Sesiones bloqueantes:");
-        blockers.slice(0, 8).forEach((d) => lines.push(
-            `- inst ${d.instancia} ${d.sid_serial} · ${d.usuario || "?"} · ${d.maquina || ""} · bloquea a ${d.bloquea_a} ses. · espera máx. ${fmtSeconds(d.espera_max_s)}` +
-            (d.sql_id ? ` · SQL ${d.sql_id}` : "")));
-    }
-    const subject = long.length
-        ? `[SIMBA] Bloqueo de más de ${BLOCK_ALERT_S / 60} min (${long.length} sesión/es)`
-        : `[SIMBA] Estado de Oracle: ${SEV[c.overall]?.label || c.overall}`;
-    const body = lines.join("\n").slice(0, 1800);
-    location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
-
 function fmtSeconds(s) {
     if (s == null) return "";
     if (s < 60) return `${s} s`;
@@ -1328,7 +1300,6 @@ function bindEvents() {
     });
 
     $("refresh-btn").addEventListener("click", () => loadHealth(false));
-    $("mail-btn").addEventListener("click", mailStatus);
     $("force-btn").addEventListener("click", () => loadHealth(true));
     $("detail-panel").addEventListener("toggle", (e) => { if (e.target.open) loadDetail(); });
 
