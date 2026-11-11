@@ -259,67 +259,6 @@ async function loadHealth(force, silent = false) {
     }
 }
 
-function downloadCsv(filename, headers, rows) {
-    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""').replace(/\r?\n/g, " ")}"`;
-    const text = [headers, ...rows].map((r) => r.map(esc).join(";")).join("\r\n");
-    const url = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" }));
-    const a = el("a", { href: url, download: filename });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
-
-function chipsBar(box, chips, onClear) {
-    box.hidden = !chips.length;
-    if (!chips.length) return box.replaceChildren();
-    box.replaceChildren(
-        el("span", { class: "chips-label", text: `Filtros activos: ${chips.length}` }),
-        ...chips.map((c) => el("span", { class: "chip" },
-            el("span", { class: "chip-k", text: `${c.label}:` }), ` ${c.value} `,
-            el("button", { type: "button", class: "chip-x", title: "Quitar filtro", "aria-label": `Quitar ${c.label}`, text: "✕", onclick: c.clear }))),
-        el("button", { type: "button", class: "btn-link-inline", text: "Limpiar todo", onclick: onClear }));
-}
-
-const IMPACT = { CRITICAL: "Alto", WARNING: "Medio", INFO: "Bajo" };
-function renderInsights(areas) {
-    const box = $("insights");
-    const list = areas.filter((a) => SEV[a.severity].order >= 2)
-        .map((a) => ({ a, f: a.items.find((f) => f.severity === a.severity && f.action) || a.items.find((f) => f.action) || a.items[0] }))
-        .slice(0, 4);
-    box.hidden = !list.length;
-    if (!list.length) return box.replaceChildren();
-    box.replaceChildren(
-        el("div", { class: "insights-head" },
-            el("h3", { text: "Insights y recomendaciones" }),
-            el("p", { class: "muted", text: "Prioridades calculadas a partir de los hallazgos de la última revisión" })),
-        el("div", { class: "insights-grid" }, list.map(({ a, f }, i) => {
-            const cls = SEV[a.severity].cls;
-            return el("article", { class: `insight insight-${cls}` },
-                el("div", { class: "insight-top" },
-                    el("strong", { text: `${AREA_ICON[a.area] || "•"} ${a.area}` }),
-                    el("span", { class: "insight-prio", text: `P${i + 1}` }),
-                    sevPill(a.severity)),
-                el("p", { class: "insight-msg", text: f.message }),
-                f.action ? el("p", { class: "insight-act", text: `Acción: ${f.action}` }) : null,
-                el("small", { class: "muted", text: `Impacto esperado: ${IMPACT[a.severity] || "Bajo"}` }),
-                el("div", { class: "insight-links" },
-                    (AREA_LINKS[a.area] || []).filter((l) => !l.role || can(l.role)).map((l) => l.href
-                        ? el("a", { class: "btn btn-link", href: l.href, text: l.label })
-                        : el("button", { class: "btn btn-link", type: "button", text: l.label, onclick: () => switchView(l.view) }))));
-        })));
-}
-
-function exportEstado() {
-    const c = state.check;
-    if (!c) return;
-    downloadCsv(`simba_estado_${stamp()}.csv`,
-        ["Área", "Severidad", "Mensaje", "Sugerencia", "Urgencia", "Responsable", "Revisión"],
-        (c.findings || []).map((f) => [f.area, SEV[f.severity]?.label || f.severity, f.message, f.action, f.urgency, f.owner, c.created_at]));
-    toast("Hallazgos exportados a CSV");
-}
-
 function groupByArea(findings) {
     const areas = new Map();
     for (const f of findings) {
@@ -389,10 +328,13 @@ function renderHealth() {
     const visible = (a) => !filter || SEV[a.severity].cls === filter;
     const attention = areas.filter((a) => SEV[a.severity].order >= 1 && visible(a));
     const fine = areas.filter((a) => SEV[a.severity].order < 1 && visible(a));
-    chipsBar($("filter-note"),
-        filter ? [{ label: "Severidad", value: EstadoPlus.LABEL[filter], clear: () => { EstadoPlus.setFilter(filter); renderHealth(); } }] : [],
-        () => { EstadoPlus.setFilter(filter); renderHealth(); });
-    renderInsights(areas);
+    const note = $("filter-note");
+    note.hidden = !filter;
+    if (filter) {
+        note.replaceChildren(`Mostrando solo «${EstadoPlus.LABEL[filter]}» · `,
+            el("button", { class: "btn-link-inline", type: "button", text: "ver todo",
+                onclick: () => { EstadoPlus.setFilter(filter); renderHealth(); } }));
+    }
     const okOpen = ui.okOpen || filter === "ok";
     $("attn-title").hidden = !attention.length;
     $("ok-title").hidden = !fine.length;
@@ -634,27 +576,11 @@ function renderQueries() {
         counter(String(k.completadas_que_reaparecen), `Completadas aún en el top · ${k.completadas_fuera_del_top} ya fuera`),
         counter(String(k.estancadas), "Estancadas (varias semanas)"),
     );
-    const qChips = [];
-    const qText = $("queries-search").value.trim();
-    const qGroup = $("queries-filter");
-    if (qText) qChips.push({ label: "Texto", value: qText, clear: () => { $("queries-search").value = ""; renderQueries(); } });
-    if (qGroup.value) qChips.push({ label: "Tipo", value: qGroup.selectedOptions[0].textContent.split(" (")[0], clear: () => { qGroup.value = ""; renderQueries(); } });
-    chipsBar($("queries-chips"), qChips, () => { $("queries-search").value = ""; qGroup.value = ""; renderQueries(); });
     document.querySelectorAll("#queries-modes button").forEach((b) => b.classList.toggle("active", b.dataset.mode === queriesMode));
     const body = queriesMode === "tablero" ? renderBoard(filteredCards(mergedBoard()), data.states || [])
         : queriesMode === "lista" ? renderList(filteredCards(mergedBoard()))
         : renderRecommendations(filteredCards(data.items));
     $("queries-body").replaceChildren(body);
-}
-
-function exportQueries() {
-    if (!queriesData?.week) return;
-    const cards = filteredCards(mergedBoard());
-    downloadCsv(`simba_queries_${queriesData.week}_${stamp()}.csv`,
-        ["SQL_ID", "Esquema", "Estado", "Prioridad", "Responsable", "CPU (h)", "Nota", "Comentarios", "Hallazgos"],
-        cards.map((c) => [c.sql_id, c.esquema, c.estado, c.prioridad, c.persona, c.cpu_h ?? c.cpu_media_h ?? "", c.nota,
-            (c.comentarios || []).length, (c.hallazgos || []).map((f) => f.tipo).join(", ")]));
-    toast(`${cards.length} SQL exportadas a CSV`);
 }
 
 function renderRecommendations(items) {
@@ -1301,8 +1227,6 @@ function bindEvents() {
     document.querySelectorAll("#queries-modes button").forEach((b) => b.addEventListener("click", () => { queriesMode = b.dataset.mode; renderQueries(); }));
     $("sql-dialog-close").addEventListener("click", () => $("sql-dialog").close());
     $("queries-filter").addEventListener("change", renderQueries);
-    $("queries-export").addEventListener("click", exportQueries);
-    $("estado-export").addEventListener("click", exportEstado);
     $("queries-search").addEventListener("input", renderQueries);
     $("ok-title").addEventListener("click", toggleOk);
     $("ok-title").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleOk(); } });

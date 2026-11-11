@@ -75,7 +75,6 @@
                         </div>
                         <div class="status-actions">
                             <button class="btn" id="refresh-btn" title="Muestra la última revisión; solo consulta Oracle si ha caducado">↻ Actualizar</button>
-                            <button class="btn" id="estado-export" title="Descargar los hallazgos actuales en CSV (abre en Excel)">⬇ Exportar CSV</button>
                             <button class="btn btn-primary" id="force-btn" data-min-role="dba"
                                     title="Ejecuta una revisión nueva contra Oracle ignorando la caché">Revisar ahora</button>
                         </div>
@@ -83,9 +82,7 @@
 
                     <div class="counters" id="counters"></div>
 
-                    <section class="insights" id="insights" hidden></section>
-
-                    <div class="chips-bar" id="filter-note" hidden></div>
+                    <p class="filter-note" id="filter-note" hidden></p>
                     <h3 class="section-title" id="attn-title" hidden>Requiere atención</h3>
                     <div class="rows" id="area-cards"></div>
                     <h3 class="section-title section-toggle" id="ok-title" hidden role="button" tabindex="0"></h3>
@@ -118,12 +115,10 @@
                                 <option value="seguimiento">Seguimiento (nuevas, estancadas, completadas)</option>
                                 <option value="tecnica">Pistas técnicas</option>
                             </select>
-                            <button class="btn" id="queries-export" title="Descargar en CSV las SQL que se ven con el filtro actual">⬇ Exportar CSV</button>
                             <button class="btn" id="queries-reload" title="Volver a leer los Excel">↻</button>
                         </div>
                     </div>
                     <div class="counters" id="queries-counters"></div>
-                    <div class="chips-bar" id="queries-chips" hidden></div>
                     <div class="subtabs" id="queries-modes">
                         <button data-mode="tablero" class="active">🗂️ Tablero</button>
                         <button data-mode="lista">📋 Lista</button>
