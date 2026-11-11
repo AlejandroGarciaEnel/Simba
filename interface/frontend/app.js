@@ -159,7 +159,7 @@ function showApp() {
 // reintenta con backoff si falla y la revisión de salud usa la caché del servidor (sin force).
 const LIVE = {
     conn: { every: 15000, run: () => refreshConnection(), views: null },
-    health: { every: 60000, run: () => loadHealth(false, true), views: ["estado"] },
+    health: { every: 60000, run: () => loadHealth(false, true), views: ["estado", "sesiones"] },
     queries: { every: 300000, run: () => loadQueries(true), views: ["queries"] },
 };
 const live = { timer: null, view: "estado", last: {}, fails: {}, busy: {}, connOk: null, updatedAt: null };
@@ -224,6 +224,7 @@ document.addEventListener("visibilitychange", () => {
 // ========== Navegación ==========
 function switchView(view) {
     live.view = view;
+    if (view === "sesiones") { SessionsDash.update(state.check); if (!state.check) loadHealth(false, true); }
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
     document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
     if (view === "historico") loadHistory();
@@ -246,6 +247,7 @@ async function loadHealth(force, silent = false) {
         state.check = check;
         if (!unchanged) renderHealth();
         else $("overall-meta").textContent = $("overall-meta").textContent.replace(/\(hace [^)]*\)/, `(${ago(check.created_at)})`);
+        SessionsDash.update(check);
         if (force) toast("Revisión nueva completada");
     } catch (err) {
         if (silent) throw err;

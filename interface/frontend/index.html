@@ -40,6 +40,7 @@
             </div>
             <nav class="tabs" id="tabs">
                 <button class="tab active" data-view="estado">Estado</button>
+                <button class="tab" data-view="sesiones">Sesiones</button>
                 <button class="tab" data-view="queries">Queries</button>
                 <button class="tab" data-view="historico">Histórico</button>
                 <button class="tab" data-view="usuarios" data-min-role="administrador">Usuarios</button>
@@ -89,6 +90,11 @@
                         <div class="subtabs" id="detail-tabs"></div>
                         <div class="table-wrap" id="detail-body"><p class="muted">Abre esta sección para cargar los datos.</p></div>
                     </details>
+                </section>
+
+                <!-- Sesiones inactivas y bloqueadas (estilo Grafana) -->
+                <section class="view" id="view-sesiones" hidden>
+                    <div class="gf-dash" id="sessions-dash"><p class="muted">Cargando datos…</p></div>
                 </section>
 
                 <!-- Mejoras de queries (informe semanal) -->
@@ -212,6 +218,7 @@
         <div class="sql-dialog-body" id="sql-dialog-body"></div>
     </dialog>
 
+    <script src="sessions-dash.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
