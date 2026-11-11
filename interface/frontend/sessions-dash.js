@@ -79,7 +79,7 @@ const SessionsDash = (() => {
         }
         const t0 = points[0].t, t1 = points[points.length - 1].t || t0 + 1;
         const maxV = Math.max(1, ...series.flatMap((s) => points.map((p) => p[s.key])), ...(thresholds || []).map((x) => x.v));
-        const top = Math.ceil(maxV * 1.1);
+        const top = Math.max(4, Math.ceil(maxV * 1.1));
         const X = (t) => m.l + ((t - t0) / (t1 - t0 || 1)) * iw;
         const Y = (v) => m.t + ih - (v / top) * ih;
         const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "gf-svg" });
