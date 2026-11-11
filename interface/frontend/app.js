@@ -902,12 +902,34 @@ function openSqlDetail(card) {
         can("dba") && queriesData?.board?.some((b) => b.sql_id === c.sql_id) ? renderBoardEditor(c)
             : c.nota_local ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Nota del equipo" }),
                 el("p", { class: "pre-line", text: c.nota_local })) : null,
+        renderAssignMe(c),
         renderComments(c),
         el("div", { class: "inline-form" },
             can("dba") ? el("button", { class: "btn btn-primary", text: "🔬 Analizar SQL en la BD", onclick: () => loadSqlAnalysis(c.sql_id, analysis) }) : null,
             askButton(c.sql_id)),
         analysis);
     $("sql-dialog").showModal();
+}
+
+function renderAssignMe(c) {
+    if (!queriesData?.board?.some((b) => b.sql_id === c.sql_id)) return null;
+    const me = state.user.username.toLowerCase();
+    const persona = (c.persona || "").trim().toLowerCase();
+    const mine = persona === me || persona.split(/[^a-z0-9]+/).includes(me);
+    if (persona && !mine) return null;
+    const btn = el("button", { class: mine ? "btn" : "btn btn-primary", type: "button", text: mine ? "Quitarme la asignación" : "🙋 Asignármela" });
+    btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+            const { override } = await api(`/query-board/${c.sql_id}/assign-me`, { method: "POST" });
+            if (override) queriesOverrides[c.sql_id] = override; else delete queriesOverrides[c.sql_id];
+            renderQueries();
+            toast(mine ? "Asignación quitada" : "Te la has asignado");
+            $("sql-dialog").close();
+        } catch (err) { toast(err.message, "error"); btn.disabled = false; }
+    });
+    return el("div", { class: "inline-form" }, btn,
+        el("small", { class: "muted", text: mine ? "Eres el responsable de esta SQL." : "Sin responsable: puedes hacerte cargo." }));
 }
 
 function renderComments(c) {

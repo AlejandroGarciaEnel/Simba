@@ -582,6 +582,25 @@ async def query_board_update(sql_id: str, body: QueryBoardUpdate, user: Dict[str
     return {"sql_id": sql_id.strip().lower(), "override": record}
 
 
+@app.post("/api/query-board/{sql_id}/assign-me")
+async def query_board_assign_me(sql_id: str, user: Dict[str, str] = Depends(as_consulta)):
+    """Cualquier usuario puede asignarse una SQL (o quitarse la asignación si ya es suya). Solo toca el responsable."""
+    from query_reports import board_store
+
+    me = user["username"]
+    current = ((await run_in_threadpool(board_store.get_all)).get(sql_id.strip().lower()) or {}).get("persona")
+    mine = board_store._persona_matches(current, me)
+    if current and not mine:
+        raise HTTPException(status_code=409, detail=f"Ya está asignada a «{current}». Pide a un DBA que la reasigne.")
+    changes = {"persona": "" if mine else me}
+    try:
+        record = await run_in_threadpool(board_store.update, sql_id, changes, me)
+        await run_in_threadpool(_notify_board_change, sql_id, changes, me)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"sql_id": sql_id.strip().lower(), "override": record}
+
+
 class QueryCommentIn(BaseModel):
     text: str
 
