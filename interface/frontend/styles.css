@@ -512,3 +512,31 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 .sql-dialog-body > .rec, .sql-dialog-body .board-editor { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; }
 .sql-dialog-body > h3 { margin: 4px 0 0; }
 .sql-dialog-body .inline-form { position: sticky; bottom: -28px; padding: 10px 0; background: var(--bg); }
+
+/* ---- Chips de filtros activos ---- */
+.chips-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; }
+.chips-bar[hidden] { display: none; }
+.chips-label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted, #64748b); }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 12px; border-radius: 999px; font-size: 13px;
+    background: color-mix(in srgb, var(--primary) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border)); }
+.chip-k { font-weight: 600; opacity: .75; }
+.chip-x { border: 0; background: transparent; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; color: inherit; font-size: 12px; }
+.chip-x:hover { background: color-mix(in srgb, var(--crit) 18%, transparent); color: var(--crit); }
+
+/* ---- Insights y recomendaciones ---- */
+.insights { margin: 6px 0 22px; padding: 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.insights[hidden] { display: none; }
+.insights-head h3 { margin: 0; font-size: 18px; color: var(--primary); }
+.insights-head p { margin: 2px 0 14px; font-size: 13px; }
+.insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.insight { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); border-left-width: 4px; background: var(--surface-2); }
+.insight-crit { border-left-color: var(--crit); background: color-mix(in srgb, var(--crit) 6%, var(--surface)); }
+.insight-warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--surface)); }
+.insight-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.insight-top strong { flex: 1; }
+.insight-prio { font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: var(--primary); color: #fff; }
+.insight-msg { margin: 0; font-size: 14px; }
+.insight-act { margin: 0; font-size: 13px; font-weight: 600; color: var(--primary); }
+.insight-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+.insight-msg, .insight-act { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; -webkit-line-clamp: 4; }
+.insight-act { -webkit-line-clamp: 3; }

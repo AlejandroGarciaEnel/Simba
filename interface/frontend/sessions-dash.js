@@ -267,11 +267,23 @@ const SessionsDash = (() => {
         return wrap;
     }
 
+    function exportBlocking() {
+        const rootOf = new Map(blocking.roots.map((r) => [`${r.instancia}:${r.sid}`, r]));
+        downloadCsv(`simba_bloqueos_${stamp()}.csv`,
+            ["Bloqueante (inst:SID)", "Usuario bloqueante", "Bloqueada (inst:SID)", "Usuario bloqueada", "Espera (s)", "Evento", "Objeto", "SQL_ID"],
+            blocking.waiting.map((w) => {
+                const k = `${w.inst_raiz ?? w.inst_bloqueante}:${w.sid_raiz ?? w.sid_bloqueante}`;
+                return [k, rootOf.get(k)?.usuario, `${w.instancia}:${w.sid}`, w.usuario, w.segundos_espera, w.evento, w.objeto, w.sql_id];
+            }));
+    }
+
     function chainsPanel() {
         const total = blocking.waiting.length;
         const box = el("section", { class: PANEL }, el("div", { class: "mb-3 flex flex-wrap items-center justify-between gap-2" },
             el("h4", { class: "text-sm font-medium text-slate-200", text: `🔗 Cadenas de bloqueo · ${blocking.roots.length} bloqueante(s), ${total} bloqueada(s)` }),
-            el("span", { class: "text-xs text-slate-500", text: `Actualizado ${blocking.taken_at ? blocking.taken_at.slice(11) : ""}` })));
+            el("span", { class: "flex items-center gap-3 text-xs text-slate-500" },
+                `Actualizado ${blocking.taken_at ? blocking.taken_at.slice(11) : ""}`,
+                el("button", { class: "rounded-md bg-white/10 px-2 py-1 text-slate-200 hover:bg-white/20", type: "button", text: "⬇ Exportar CSV", onclick: exportBlocking }))));
         const key = (i, sid) => `${i}:${sid}`;
         const byRoot = new Map();
         blocking.waiting.forEach((w) => {
