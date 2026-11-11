@@ -176,21 +176,9 @@ const SessionsDash = (() => {
         return box;
     }
 
-    // Arrastrar = desplazar, rueda = zoom centrado en el cursor, doble clic = ver todo.
+    // Arrastrar = desplazar, doble clic = ver todo.
     let drag = null;
     function bindInteractions(host) {
-        host.addEventListener("wheel", (e) => {
-            const svgEl = e.target.closest?.("svg[data-chart]");
-            if (!svgEl || points.length < 2) return;
-            e.preventDefault();
-            const r = svgEl.getBoundingClientRect();
-            const frac = Math.min(1, Math.max(0, ((e.clientX - r.left) / r.width * geom.W - geom.m.l) / (geom.W - geom.m.l - geom.m.r)));
-            const [t0, t1] = curRange();
-            const k = e.deltaY > 0 ? 1.25 : 0.8;
-            const span = (t1 - t0) * k, anchor = t0 + (t1 - t0) * frac;
-            setWindow(anchor - span * frac, anchor + span * (1 - frac));
-            scheduleCharts();
-        }, { passive: false });
         host.addEventListener("mousedown", (e) => {
             const svgEl = e.target.closest?.("svg[data-chart]");
             if (!svgEl || e.button !== 0) return;
@@ -219,7 +207,7 @@ const SessionsDash = (() => {
                 ...RANGES.map(([txt, v]) => el("button", {
                     class: "rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/10 transition hover:bg-indigo-500/30",
                     text: txt, onclick: () => applyRange(v) })),
-                el("span", { class: "ml-auto text-xs text-slate-400", text: `${label} · rueda = zoom · arrastrar = mover · doble clic = todo` })),
+                el("span", { class: "ml-auto text-xs text-slate-400", text: `${label} · arrastra para mover · doble clic = todo` })),
             timeSeries("inactive", "Sesiones inactivas > 30 min", [{ key: "inactive", label: "Inactivas", color: "#60a5fa" }],
                 [{ v: T.inactive.warn, cls: "warn" }]),
             timeSeries("blocked", "Sesiones bloqueadas y bloqueantes", [

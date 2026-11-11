@@ -302,6 +302,17 @@ function renderHealth() {
     if (detail.open) loadDetail();
 }
 
+function renderCpuNodes(rows) {
+    return el("div", { class: "cpu-nodes" }, rows.map((r) => {
+        const v = Number(r.pct) || 0;
+        const cls = v >= 85 ? "crit" : v >= 60 ? "warn" : "ok";
+        return el("div", { class: `cpu-row${r.nodo === "Media" ? " cpu-avg" : ""}` },
+            el("span", { class: "cpu-label", text: r.nodo }),
+            el("span", { class: "cpu-bar" }, el("i", { class: cls, style: `width:${Math.min(100, v)}%` })),
+            el("strong", { text: `${v.toFixed(1)} %` }));
+    }));
+}
+
 function renderAreaCard({ area, items, severity }) {
     const relevant = items.filter((f) => f.severity !== "OK");
     const shown = relevant.length ? relevant : items;
@@ -310,6 +321,7 @@ function renderAreaCard({ area, items, severity }) {
             relevant.length > 1 ? sevPill(f.severity) : null,
             el("p", { text: f.message }),
             f.area === "Bloqueos" && f.details ? renderBlockers(f.details) : null,
+            f.area === "CPU" && f.details ? renderCpuNodes(f.details) : null,
             f.action ? el("div", { class: "rec" },
                 el("span", { class: "rec-label", text: "Sugerencia" }),
                 el("p", { text: f.action }),

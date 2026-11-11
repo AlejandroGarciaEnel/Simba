@@ -56,6 +56,19 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, A
 
 
 # ── RF001 ─────────────────────────────────────────────────────────────────────
+def get_cpu_usage_by_node() -> list[dict[str, Any]]:
+    """Porcentaje de CPU de cada nodo del clúster (gv$osstat)."""
+    sql = """
+        SELECT b.inst_id AS nodo,
+               ROUND(b.value * 100.0 / NULLIF(b.value + i.value, 0), 2) AS cpu_pct
+        FROM gv$osstat b
+        JOIN gv$osstat i ON i.inst_id = b.inst_id AND i.stat_name = 'IDLE_TIME'
+        WHERE b.stat_name = 'BUSY_TIME'
+        ORDER BY b.inst_id
+    """
+    return [{"nodo": int(r["NODO"]), "uso": float(r["CPU_PCT"] or 0.0)} for r in _fetchall_as_dicts(sql)]
+
+
 def get_cpu_usage() -> float:
     """Porcentaje de CPU utilizado en el momento (RF001)."""
     sql = """

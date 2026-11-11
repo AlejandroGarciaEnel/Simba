@@ -294,3 +294,11 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 #sessions-dash { display: grid; gap: 16px; padding: 20px; border-radius: 16px;
     background: radial-gradient(900px 400px at 10% -10%, rgba(99, 102, 241, .18), transparent), #0b1020; }
 .content:has(#view-sesiones:not([hidden])) { max-width: none; }
+
+.cpu-nodes { display: grid; gap: 6px; margin: 8px 0; }
+.cpu-row { display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; gap: 8px; font-size: 13px; }
+.cpu-row.cpu-avg { border-top: 1px dashed var(--border, #ccc); padding-top: 6px; }
+.cpu-bar { height: 8px; border-radius: 4px; background: rgba(128,128,128,.25); overflow: hidden; }
+.cpu-bar i { display: block; height: 100%; background: #22c55e; }
+.cpu-bar i.warn { background: #f59e0b; }
+.cpu-bar i.crit { background: #ef4444; }

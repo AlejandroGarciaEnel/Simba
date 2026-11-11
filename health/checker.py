@@ -79,7 +79,23 @@ def _num(value: Any) -> float:
         return 0.0
 
 
-def _eval_cpu(data: float) -> list[dict]:
+def _cpu_data() -> Any:
+    try:
+        nodes = q.get_cpu_usage_by_node()
+    except Exception:
+        nodes = []
+    return nodes or q.get_cpu_usage()
+
+
+def _eval_cpu(data: Any) -> list[dict]:
+    if isinstance(data, list):
+        avg = sum(n["uso"] for n in data) / len(data)
+        worst = max(n["uso"] for n in data)
+        detail = [*({"nodo": f"Nodo {n['nodo']}", "pct": n["uso"]} for n in data),
+                  {"nodo": "Media", "pct": round(avg, 2)}]
+        msg = " · ".join(f"nodo {n['nodo']} {n['uso']:.1f}%" for n in data) + f" · media {avg:.1f}%."
+        sev, rec = (CRITICAL, "cpu_alta") if worst >= CPU_CRIT else (WARNING, "cpu_alta") if worst >= CPU_WARN else (OK, "")
+        return [_finding("CPU", sev, f"CPU: {msg}", rec, details=detail)]
     if data >= CPU_CRIT:
         return [_finding("CPU", CRITICAL, f"CPU al {data:.1f}%.",
                          "cpu_alta")]
@@ -229,7 +245,7 @@ def _eval_longops(rows: list[dict]) -> list[dict]:
 
 # (clave, función de datos, evaluador)
 _CHECKS: list[tuple[str, Callable[[], Any], Callable[[Any], list[dict]]]] = [
-    ("cpu", lambda: q.get_cpu_usage(), _eval_cpu),
+    ("cpu", _cpu_data, _eval_cpu),
     ("bloqueos", lambda: q.get_root_blockers(), _eval_blocking),
     ("limites", lambda: q.get_resource_limits(), _eval_limits),
     ("tablespaces", lambda: q.get_tablespace_usage(), _eval_tablespaces),
