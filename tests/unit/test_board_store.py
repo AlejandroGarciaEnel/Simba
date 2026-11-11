@@ -40,3 +40,20 @@ def test_comentarios_firmados_y_borrado():
         board_store.delete_comment("gr2s615xytkx7", c["id"], "luis", False)
     assert board_store.delete_comment("gr2s615xytkx7", c["id"], "admin", True)
     assert board_store.get_all() == {}
+
+
+def test_notifications_reach_involved_users_only_and_can_be_read():
+    users = ["mario", "ana", "luis"]
+    board_store.update("abcd1234efgh", {"persona": "ANA GARCIA"}, "mario")
+    board_store.add_comment("abcd1234efgh", "revisa el plan", "luis", "dba")
+
+    to = board_store.recipients("abcd1234efgh", "mario", users, "gracias @luis")
+    assert to == ["ana", "luis"]
+    board_store.notify("abcd1234efgh", "comentario", "mario", "gracias @luis", to)
+
+    assert board_store.notifications_for("mario") == {"items": [], "unread": 0}
+    inbox = board_store.notifications_for("ana")
+    assert inbox["unread"] == 1 and inbox["items"][0]["by"] == "mario" and "to" not in inbox["items"][0]
+
+    board_store.mark_read("ana")
+    assert board_store.notifications_for("ana")["unread"] == 0

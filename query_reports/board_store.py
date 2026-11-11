@@ -141,3 +141,81 @@ def delete_comment(sql_id: str, comment_id: str, user: str, is_admin: bool) -> b
             data.pop(sid, None)
         _save(data)
     return True
+
+
+# ---- Notificaciones (campana) por usuario ----
+NOTIF_MAX = 500
+MENTION_RE = re.compile(r"@([A-Za-z0-9_.-]{2,40})")
+
+
+def _notif_path() -> Path:
+    return Path(os.environ.get("SIMBA_QUERY_NOTIF_FILE", _path().with_name("query_notifications.json")))
+
+
+def _load_notifs() -> dict[str, Any]:
+    try:
+        data = json.loads(_notif_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"events": [], "seen": {}}
+    if not isinstance(data, dict):
+        return {"events": [], "seen": {}}
+    data.setdefault("events", [])
+    data.setdefault("seen", {})
+    return data
+
+
+def _save_notifs(data: dict[str, Any]) -> None:
+    path = _notif_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _persona_matches(persona: str | None, username: str) -> bool:
+    """Un responsable coincide con un usuario si es igual o contiene su nombre como palabra."""
+    p, u = (persona or "").strip().lower(), username.lower()
+    return bool(p) and (p == u or u in re.split(r"[^a-z0-9]+", p))
+
+
+def recipients(sql_id: str, actor: str, known_users: list[str], text: str = "", extra_persona: str | None = None) -> list[str]:
+    """Usuarios implicados en una SQL: responsable, autores de comentarios, quien la editó y @menciones."""
+    sid = normalize_sql_id(sql_id)
+    record = get_all().get(sid, {})
+    involved = {c.get("author") for c in record.get("comments", [])} | {record.get("updated_by")}
+    mentioned = {m.lower() for m in MENTION_RE.findall(text or "")}
+    out = []
+    for user in known_users:
+        if user == actor:
+            continue
+        if (user in involved or user.lower() in mentioned
+                or _persona_matches(record.get("persona"), user) or _persona_matches(extra_persona, user)):
+            out.append(user)
+    return out
+
+
+def notify(sql_id: str, kind: str, by: str, text: str, to: list[str]) -> None:
+    if not to:
+        return
+    with _lock:
+        data = _load_notifs()
+        data["events"].append({"id": uuid.uuid4().hex[:10], "sql_id": normalize_sql_id(sql_id), "kind": kind,
+                               "by": by, "at": _now(), "text": (text or "")[:200], "to": to})
+        data["events"] = data["events"][-NOTIF_MAX:]
+        _save_notifs(data)
+
+
+def notifications_for(user: str, limit: int = 30) -> dict[str, Any]:
+    with _lock:
+        data = _load_notifs()
+    seen = data["seen"].get(user, "")
+    mine = [e for e in data["events"] if user in e.get("to", [])]
+    items = [{**{k: v for k, v in e.items() if k != "to"}, "unread": e["at"] > seen} for e in reversed(mine[-limit:])]
+    return {"items": items, "unread": sum(1 for e in mine if e["at"] > seen)}
+
+
+def mark_read(user: str) -> None:
+    with _lock:
+        data = _load_notifs()
+        data["seen"][user] = _now()
+        _save_notifs(data)

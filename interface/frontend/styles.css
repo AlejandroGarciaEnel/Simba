@@ -512,3 +512,19 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 .sql-dialog-body > .rec, .sql-dialog-body .board-editor { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; }
 .sql-dialog-body > h3 { margin: 4px 0 0; }
 .sql-dialog-body .inline-form { position: sticky; bottom: -28px; padding: 10px 0; background: var(--bg); }
+
+/* ---- Campana de avisos ---- */
+.bell-wrap { position: relative; }
+.bell { position: relative; }
+.bell-badge { position: absolute; top: -2px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--crit); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.bell-badge[hidden] { display: none; }
+.bell-panel { position: absolute; right: 0; top: calc(100% + 8px); width: 360px; max-width: 90vw; max-height: 70vh; overflow: auto; z-index: 60;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, .22); }
+.bell-panel[hidden] { display: none; }
+.bell-head { display: grid; gap: 2px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.bell-list { list-style: none; margin: 0; padding: 0; }
+.bell-list li { display: grid; gap: 2px; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.bell-list li:hover, .bell-list li:focus { background: var(--surface-2); outline: none; }
+.bell-list li.unread { background: color-mix(in srgb, var(--primary) 8%, var(--surface)); border-left: 3px solid var(--primary); }
+.bell-msg { font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bell-empty { padding: 18px 14px; margin: 0; }

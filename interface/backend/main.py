@@ -472,6 +472,22 @@ async def query_board_overrides(_: Dict[str, str] = Depends(as_consulta)):
     return {"overrides": await run_in_threadpool(board_store.get_all)}
 
 
+def _active_usernames() -> list[str]:
+    return [u["username"] for u in user_store.list() if u.get("active", True)]
+
+
+def _notify_board_change(sql_id: str, changes: Dict[str, Any], actor: str) -> None:
+    from query_reports import board_store
+
+    labels = {"estado": "movió a «{}»", "prioridad": "cambió la prioridad a «{}»", "persona": "asignó a «{}»"}
+    for key, template in labels.items():
+        value = (changes.get(key) or "").strip()
+        if not value:
+            continue
+        to = board_store.recipients(sql_id, actor, _active_usernames(), extra_persona=value if key == "persona" else None)
+        board_store.notify(sql_id, key, actor, template.format(value), to)
+
+
 class QueryBoardUpdate(BaseModel):
     estado: str | None = None
     prioridad: str | None = None
@@ -492,6 +508,7 @@ async def query_board_update(sql_id: str, body: QueryBoardUpdate, user: Dict[str
             if changes["estado"] not in states:
                 raise ValueError("Estado no válido.")
         record = await run_in_threadpool(board_store.update, sql_id, changes, user["username"])
+        await run_in_threadpool(_notify_board_change, sql_id, changes, user["username"])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"sql_id": sql_id.strip().lower(), "override": record}
@@ -508,9 +525,27 @@ async def query_board_add_comment(sql_id: str, body: QueryCommentIn, user: Dict[
 
     try:
         comment = await run_in_threadpool(board_store.add_comment, sql_id, body.text, user["username"], user["role"])
+        to = await run_in_threadpool(board_store.recipients, sql_id, user["username"], _active_usernames(), body.text)
+        await run_in_threadpool(board_store.notify, sql_id, "comentario", user["username"], body.text, to)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"comment": comment}
+
+
+@app.get("/api/notifications")
+async def my_notifications(user: Dict[str, str] = Depends(as_consulta)):
+    """Avisos del usuario sobre las SQL en las que participa (campana)."""
+    from query_reports import board_store
+
+    return await run_in_threadpool(board_store.notifications_for, user["username"])
+
+
+@app.post("/api/notifications/read")
+async def read_notifications(user: Dict[str, str] = Depends(as_consulta)):
+    from query_reports import board_store
+
+    await run_in_threadpool(board_store.mark_read, user["username"])
+    return {"ok": True}
 
 
 @app.delete("/api/query-board/{sql_id}/comments/{comment_id}")

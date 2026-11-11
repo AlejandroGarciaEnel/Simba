@@ -160,6 +160,7 @@ function showApp() {
 const LIVE = {
     conn: { every: 15000, run: () => refreshConnection(), views: null },
     health: { every: 60000, run: () => loadHealth(false, true), views: ["estado", "sesiones"] },
+    notifs: { every: 30000, run: () => loadNotifications(), views: null },
     queries: { every: 300000, run: () => loadQueries(true), views: ["queries"] },
 };
 const live = { timer: null, view: "estado", last: {}, fails: {}, busy: {}, connOk: null, updatedAt: null };
@@ -192,6 +193,69 @@ async function liveTick() {
     renderLiveStamp();
 }
 
+// ---- Campana: avisos sobre las SQL en las que participa el usuario ----
+const NOTIF_TEXT = {
+    comentario: (n) => `${n.by} comentó: ${n.text}`,
+    estado: (n) => `${n.by} ${n.text}`,
+    prioridad: (n) => `${n.by} ${n.text}`,
+    persona: (n) => `${n.by} ${n.text}`,
+};
+const notif = { items: [], unread: 0 };
+
+async function loadNotifications() {
+    const data = await api("/notifications");
+    const grew = data.unread > notif.unread;
+    notif.items = data.items;
+    notif.unread = data.unread;
+    renderBell();
+    if (grew && !$("bell-panel").hidden) await markNotificationsRead();
+}
+
+function renderBell() {
+    const badge = $("bell-badge");
+    badge.hidden = !notif.unread;
+    badge.textContent = notif.unread > 99 ? "99+" : String(notif.unread);
+    $("bell-btn").title = notif.unread ? `${notif.unread} aviso(s) sin leer` : "Avisos sobre tus SQL";
+    const panel = $("bell-panel");
+    if (panel.hidden) return;
+    panel.replaceChildren(
+        el("div", { class: "bell-head" }, el("strong", { text: "Avisos" }),
+            el("small", { class: "muted", text: "SQL donde eres responsable, comentaste o te mencionan (@usuario)" })),
+        notif.items.length ? el("ul", { class: "bell-list" }, notif.items.map((n) =>
+            el("li", { class: n.unread ? "unread" : "", tabindex: 0, role: "button",
+                onclick: () => openNotification(n), onkeydown: (e) => { if (e.key === "Enter") openNotification(n); } },
+                el("span", { class: "mono", text: n.sql_id }),
+                el("span", { class: "bell-msg", text: (NOTIF_TEXT[n.kind] || NOTIF_TEXT.comentario)(n) }),
+                el("small", { class: "muted", text: ago(n.at) }))))
+            : el("p", { class: "muted bell-empty", text: "No tienes avisos." }));
+}
+
+async function markNotificationsRead() {
+    if (!notif.unread) return;
+    notif.items.forEach((n) => { n.unread = false; });
+    notif.unread = 0;
+    await api("/notifications/read", { method: "POST" }).catch(() => {});
+    renderBell();
+}
+
+function toggleBell(open) {
+    const panel = $("bell-panel");
+    panel.hidden = !open;
+    $("bell-btn").setAttribute("aria-expanded", String(open));
+    if (!open) return;
+    renderBell();
+    setTimeout(() => { if (!panel.hidden) markNotificationsRead(); }, 1500);
+}
+
+async function openNotification(n) {
+    toggleBell(false);
+    switchView("queries");
+    if (!queriesData) await loadQueries();
+    const card = mergedBoard().find((c) => c.sql_id === n.sql_id);
+    if (card) openSqlDetail(card);
+    else toast(`${n.sql_id} ya no aparece en el tablero`, "error");
+}
+
 function resetLive(name) { live.last[name] = Date.now(); live.fails[name] = 0; }
 
 async function refreshConnection() {
@@ -216,6 +280,11 @@ function renderLiveStamp() {
     const t = live.updatedAt ? new Date(live.updatedAt).toLocaleTimeString("es-ES") : "—";
     $("conn-text").textContent = `${live.connText} · en vivo ${t}`;
 }
+
+document.addEventListener("click", (e) => {
+    if (!$("bell-panel").hidden && !e.target.closest(".bell-wrap")) toggleBell(false);
+});
+$("bell-btn").addEventListener("click", () => toggleBell($("bell-panel").hidden));
 
 document.addEventListener("visibilitychange", () => {
     if (!document.hidden && state.user) { live.last = {}; liveTick(); }
@@ -842,7 +911,7 @@ function renderComments(c) {
             renderQueries();
             draw();
         };
-        const input = el("textarea", { class: "cm-input", rows: 2, maxlength: 2000, placeholder: "Escribe un comentario para el equipo…" });
+        const input = el("textarea", { class: "cm-input", rows: 2, maxlength: 2000, placeholder: "Escribe un comentario para el equipo… (usa @usuario para avisar a alguien)" });
         const send = async () => {
             const text = input.value.trim();
             if (!text) return;
