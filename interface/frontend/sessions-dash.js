@@ -196,19 +196,74 @@ const SessionsDash = (() => {
     let drag = null;
     function bindInteractions(host) {
         host.addEventListener("mousedown", (e) => {
+            const ovEl = e.target.closest?.("svg[data-ov]");
+            if (ovEl && e.button === 0) { ovPointerDown(e, ovEl); return; }
             const svgEl = e.target.closest?.("svg[data-chart]");
             if (!svgEl || e.button !== 0) return;
             const [t0, t1] = curRange();
             drag = { x: e.clientX, t0, t1, w: svgEl.getBoundingClientRect().width };
         });
         host.addEventListener("dblclick", (e) => { if (e.target.closest?.("svg[data-chart]")) applyRange(null); });
+        host.addEventListener("wheel", (e) => {
+            const svgEl = e.target.closest?.("svg[data-chart]");
+            if (!svgEl || !points.length) return;
+            e.preventDefault();
+            const r = svgEl.getBoundingClientRect(), { W, m } = geom;
+            const frac = Math.min(1, Math.max(0, (((e.clientX - r.left) / r.width) * W - m.l) / (W - m.l - m.r)));
+            const [t0, t1] = curRange(), k = e.deltaY < 0 ? 0.8 : 1.25, span = (t1 - t0) * k;
+            const c = t0 + frac * (t1 - t0);
+            setWindow(c - frac * span, c + (1 - frac) * span);
+            scheduleCharts();
+        }, { passive: false });
         window.addEventListener("mousemove", (e) => {
+            if (ov) { ovPointerMove(e); return; }
             if (!drag) return;
             const dt = -((e.clientX - drag.x) / drag.w) * (geom.W / (geom.W - geom.m.l - geom.m.r)) * (drag.t1 - drag.t0);
             setWindow(drag.t0 + dt, drag.t1 + dt);
             scheduleCharts();
         });
-        window.addEventListener("mouseup", () => { drag = null; });
+        window.addEventListener("mouseup", () => { drag = null; ov = null; });
+    }
+    // Minimapa: todo el histórico con la ventana visible; se arrastra, se estiran los bordes o se hace clic para centrar.
+    const OV = { W: 900, H: 54 };
+    let ov = null;
+    function overview() {
+        const { W, H } = OV;
+        const [a, b] = fullRange(), [t0, t1] = curRange();
+        const X = (t) => ((t - a) / (b - a || 1)) * W;
+        const max = Math.max(1, ...points.map((p) => p.blocked));
+        const Y = (v) => H - 4 - (v / max) * (H - 12);
+        const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "block h-14 w-full cursor-pointer select-none", "data-ov": 1 });
+        const d = points.map((p, i) => (i ? `H${X(p.t).toFixed(1)} V${Y(p.blocked).toFixed(1)}` : `M${X(p.t).toFixed(1)},${Y(p.blocked).toFixed(1)}`)).join(" ");
+        root.append(svg("rect", { x: 0, y: 0, width: W, height: H, rx: 8, fill: "#0f172a", "fill-opacity": ".6" }),
+            svg("path", { d: `${d} V${H} H${X(points[0].t)} Z`, fill: "#fb7185", "fill-opacity": ".35" }),
+            svg("path", { d, fill: "none", stroke: "#fb7185", "stroke-width": 1.5 }));
+        const x0 = X(t0), x1 = X(t1);
+        root.append(svg("rect", { x: 0, y: 0, width: Math.max(0, x0), height: H, fill: "#000", "fill-opacity": ".45" }),
+            svg("rect", { x: x1, y: 0, width: Math.max(0, W - x1), height: H, fill: "#000", "fill-opacity": ".45" }),
+            svg("rect", { x: x0, y: 1, width: Math.max(4, x1 - x0), height: H - 2, fill: "none", stroke: "#818cf8", "stroke-width": 2, rx: 4 }),
+            svg("rect", { x: x0 - 3, y: H / 2 - 10, width: 6, height: 20, rx: 3, fill: "#818cf8" }),
+            svg("rect", { x: x1 - 3, y: H / 2 - 10, width: 6, height: 20, rx: 3, fill: "#818cf8" }));
+        return el("div", { class: "w-full" }, root);
+    }
+    function ovPointerDown(e, svgEl) {
+        const r = svgEl.getBoundingClientRect();
+        const [a, b] = fullRange(), [t0, t1] = curRange();
+        const span = b - a, x = ((e.clientX - r.left) / r.width) * OV.W, edge = 10;
+        const px = (t) => ((t - a) / span) * OV.W;
+        let mode = "move";
+        if (Math.abs(x - px(t0)) < edge) mode = "l";
+        else if (Math.abs(x - px(t1)) < edge) mode = "r";
+        else if (x < px(t0) || x > px(t1)) { const c = a + (x / OV.W) * span, h = (t1 - t0) / 2; setWindow(c - h, c + h); renderCharts(); }
+        const [n0, n1] = curRange();
+        ov = { mode, x: e.clientX, w: r.width, span, t0: n0, t1: n1 };
+    }
+    function ovPointerMove(e) {
+        const dt = ((e.clientX - ov.x) / ov.w) * ov.span;
+        if (ov.mode === "move") setWindow(ov.t0 + dt, ov.t1 + dt);
+        else if (ov.mode === "l") setWindow(Math.min(ov.t0 + dt, ov.t1 - 5 * 60000), ov.t1);
+        else setWindow(ov.t0, Math.max(ov.t1 + dt, ov.t0 + 5 * 60000));
+        scheduleCharts();
     }
     let raf = 0;
     const scheduleCharts = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(renderCharts); };
@@ -223,7 +278,8 @@ const SessionsDash = (() => {
                 ...RANGES.map(([txt, v]) => el("button", {
                     class: "rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/10 transition hover:bg-indigo-500/30",
                     text: txt, onclick: () => applyRange(v) })),
-                el("span", { class: "ml-auto text-xs text-slate-400", text: `${label} · arrastra para mover · doble clic = todo` })),
+                el("span", { class: "ml-auto text-xs text-slate-400", text: `${label} · rueda = zoom · arrastra para mover · doble clic = todo` })),
+            overview(),
             timeSeries("inactive", "Sesiones inactivas > 30 min", [{ key: "inactive", label: "Inactivas", color: "#60a5fa" }],
                 [{ v: T.inactive.warn, cls: "warn" }]),
             timeSeries("blocked", "Sesiones bloqueadas y bloqueantes", [
