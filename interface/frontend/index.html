@@ -43,6 +43,7 @@
                 <button class="tab" data-view="sesiones"><span class="tab-ico">👥</span>Sesiones</button>
                 <button class="tab" data-view="queries"><span class="tab-ico">🧮</span>Queries</button>
                 <button class="tab" data-view="historico"><span class="tab-ico">🕘</span>Histórico</button>
+                <button class="tab" data-view="awr" data-min-role="administrador"><span class="tab-ico">🗂️</span>AWR</button>
                 <button class="tab" data-view="usuarios" data-min-role="administrador"><span class="tab-ico">🔑</span>Usuarios</button>
             </nav>
             <div class="topbar-right">
@@ -163,6 +164,17 @@
                 </section>
 
                 <!-- Usuarios -->
+                <section class="view" id="view-awr" hidden>
+                    <div class="section-head">
+                        <div>
+                            <h2>AWR</h2>
+                            <p class="muted">Snapshots guardados en <b>DBA_HIST_SNAPSHOT</b> durante el horario laboral y resumen semanal del viernes.</p>
+                        </div>
+                        <button class="btn btn-small" id="awr-refresh">↻ Actualizar</button>
+                    </div>
+                    <div id="awr-body"><p class="muted">Cargando…</p></div>
+                </section>
+
                 <section class="view" id="view-usuarios" hidden>
                     <div class="section-head">
                         <div>
@@ -238,6 +250,7 @@
     <script src="vendor/tailwind.js"></script>
     <script src="sessions-dash.js"></script>
     <script src="estado-plus.js"></script>
+    <script src="awr.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

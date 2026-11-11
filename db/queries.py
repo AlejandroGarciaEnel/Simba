@@ -22,10 +22,13 @@ QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
 # Salvaguarda defensiva: nunca devolver más filas que esto, aunque una query
 # sin límite explícito (p. ej. get_sga_info) devuelva un resultado inesperado.
 HARD_ROW_LIMIT = 500
+# El resumen semanal (batch) recorre DBA_HIST_SQLSTAT de una semana: necesita más margen que el panel.
+WEEKLY_TIMEOUT_MS = 180_000
 INACTIVE_LIST_MAX_ROWS = 20000  # el listado completo de inactivas no debe truncarse a 500
 
 
-def _fetchall_as_dicts(sql: str, params: dict | None = None, *, max_rows: int = HARD_ROW_LIMIT) -> list[dict[str, Any]]:
+def _fetchall_as_dicts(sql: str, params: dict | None = None, *, max_rows: int = HARD_ROW_LIMIT,
+                      timeout_ms: int | None = None) -> list[dict[str, Any]]:
     # nombre de la función RF llamante (db.queries.get_xxx), para identificar la query en los logs
     operation = inspect.stack()[1].function
     start = time.perf_counter()
@@ -33,8 +36,9 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None, *, max_rows: int = 
     try:
         # en cx_Oracle el timeout es de la conexión (el cursor no tiene callTimeout y no se aplicaba)
         try:
-            if conn.callTimeout != QUERY_TIMEOUT_MS:
-                conn.callTimeout = QUERY_TIMEOUT_MS
+            wanted = timeout_ms or QUERY_TIMEOUT_MS
+            if conn.callTimeout != wanted:
+                conn.callTimeout = wanted
         except AttributeError:
             logger.debug("connection_without_calltimeout op=%s", operation)
         with conn.cursor() as cur:
@@ -1288,3 +1292,84 @@ def get_plsql_child_sqls(sql_id: str, limit: int = 10) -> list[dict[str, Any]]:
          order by muestras desc
          fetch first :limit rows only"""
     return _fetchall_as_dicts(sql, {"sql_id": sql_id, "limit": limit})
+
+
+# ---- AWR: snapshots y resumen semanal (solo SELECT) ----
+def get_awr_snapshots(days: int = 8) -> list[dict[str, Any]]:
+    """Snapshots AWR de los últimos días por instancia (hora local de la BD)."""
+    sql = """
+        select instance_number instancia, snap_id,
+               to_char(cast(end_interval_time as date), 'YYYY-MM-DD"T"HH24:MI:SS') fin
+          from dba_hist_snapshot
+         where dbid = (select dbid from v$database)
+           and end_interval_time > systimestamp - numtodsinterval(:days, 'DAY')
+         order by instance_number, end_interval_time"""
+    return _fetchall_as_dicts(sql, {"days": days}, max_rows=20000)
+
+
+def get_awr_settings() -> list[dict[str, Any]]:
+    """Frecuencia (minutos) y retención (días) configuradas del AWR."""
+    sql = """
+        select extract(day from snap_interval) * 1440 + extract(hour from snap_interval) * 60
+                 + extract(minute from snap_interval) intervalo_min,
+               extract(day from retention) + extract(hour from retention) / 24 retencion_dias
+          from dba_hist_wr_control
+         where dbid = (select dbid from v$database)"""
+    return _fetchall_as_dicts(sql)
+
+
+def get_weekly_top_sql(start: str, end: str, limit: int = 33) -> list[dict[str, Any]]:
+    """Top de SQL por CPU entre dos fechas (YYYY-MM-DD, fin excluido), agregado desde DBA_HIST_SQLSTAT."""
+    sql = """
+        with base as (
+            select st.sql_id, st.plan_hash_value, st.parsing_schema_name esquema,
+                   trunc(sn.begin_interval_time) dia,
+                   st.cpu_time_delta cpu, st.executions_delta ejec,
+                   st.buffer_gets_delta gets, st.rows_processed_delta filas
+              from dba_hist_sqlstat st
+              join dba_hist_snapshot sn
+                on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+             where st.dbid = (select dbid from v$database)
+               and sn.begin_interval_time >= to_timestamp(:d1, 'YYYY-MM-DD')
+               and sn.begin_interval_time <  to_timestamp(:d2, 'YYYY-MM-DD')
+        ),
+        agg as (
+            select sql_id,
+                   round(sum(cpu) / 1e6 / 3600, 1) cpu_h,
+                   sum(ejec) ejecuciones,
+                   count(distinct dia) dias,
+                   round(sum(gets) / nullif(sum(ejec), 0)) gets_ejec,
+                   round(sum(gets) / nullif(sum(filas), 0)) gets_fila,
+                   count(distinct plan_hash_value) planes,
+                   max(esquema) esquema,
+                   sum(cpu) cpu_us
+              from base group by sql_id
+        )
+        select a.*, round(100 * a.cpu_us / nullif(sum(a.cpu_us) over (), 0), 1) pct_cpu,
+               (select dbms_lob.substr(t.sql_text, 300, 1) from dba_hist_sqltext t
+                 where t.sql_id = a.sql_id and t.dbid = (select dbid from v$database) and rownum = 1) sql_text
+          from agg a
+         order by a.cpu_us desc
+         fetch first :limit rows only"""
+    return _fetchall_as_dicts(sql, {"d1": start, "d2": end, "limit": limit}, timeout_ms=WEEKLY_TIMEOUT_MS)
+
+
+def get_weekly_daily_cpu(start: str, end: str, sql_ids: list[str]) -> list[dict[str, Any]]:
+    """CPU (segundos) por día y SQL_ID para las SQL indicadas."""
+    if not sql_ids:
+        return []
+    binds = {f"s{i}": s for i, s in enumerate(sql_ids)}
+    marks = ", ".join(f":{k}" for k in binds)
+    sql = f"""
+        select st.sql_id, to_char(trunc(sn.begin_interval_time), 'YYYY-MM-DD') dia,
+               round(sum(st.cpu_time_delta) / 1e6) cpu_s
+          from dba_hist_sqlstat st
+          join dba_hist_snapshot sn
+            on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+         where st.dbid = (select dbid from v$database)
+           and st.sql_id in ({marks})
+           and sn.begin_interval_time >= to_timestamp(:d1, 'YYYY-MM-DD')
+           and sn.begin_interval_time <  to_timestamp(:d2, 'YYYY-MM-DD')
+         group by st.sql_id, trunc(sn.begin_interval_time)"""
+    return _fetchall_as_dicts(sql, {**binds, "d1": start, "d2": end}, max_rows=5000,
+                             timeout_ms=WEEKLY_TIMEOUT_MS)

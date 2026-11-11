@@ -299,6 +299,7 @@ function switchView(view) {
     if (view === "historico") loadHistory();
     if (view === "queries") loadQueries();
     if (view === "usuarios") loadUsers();
+    if (typeof AwrView !== "undefined") { if (view === "awr") AwrView.open(); else AwrView.close(); }
 }
 
 // ========== Estado ==========

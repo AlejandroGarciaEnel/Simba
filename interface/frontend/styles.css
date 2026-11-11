@@ -644,3 +644,31 @@ body:not(.dark) #sessions-dash .tip b { color: #f8fafc; }
     .hero-ring { display: none; }
     #view-estado .status-actions { flex-direction: row; }
 }
+
+/* ========== AWR (administrador) ========== */
+.awr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.awr-stat, .awr-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; }
+.awr-stat small { display: block; color: var(--muted); font-size: 12px; }
+.awr-stat b { font-size: 22px; }
+.awr-stat.ok { border-top: 3px solid var(--ok); }
+.awr-stat.warn { border-top: 3px solid var(--warn); }
+.awr-stat.crit { border-top: 3px solid var(--crit); }
+.awr-stat.pending, .awr-stat.off { border-top: 3px solid var(--muted); }
+.awr-card { margin-bottom: 14px; }
+.awr-card h3 { margin: 0 0 10px; font-size: 15px; }
+.awr-grid { display: grid; grid-template-columns: 92px repeat(24, minmax(14px, 1fr)) 110px; gap: 3px; align-items: center; font-size: 11.5px; }
+.awr-grid .hh { color: var(--muted); text-align: center; }
+.awr-grid .dl { font-weight: 600; white-space: nowrap; }
+.awr-cell { height: 22px; border-radius: 4px; background: var(--surface-2); }
+.awr-cell.has { background: var(--ok); }
+.awr-cell.has.many { background: color-mix(in srgb, var(--ok) 70%, #000); }
+.awr-cell.miss { background: color-mix(in srgb, var(--crit) 55%, transparent); }
+.awr-cell.out { opacity: .55; }
+.awr-day-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-align: center; color: #fff; }
+.awr-day-badge.ok { background: var(--ok); } .awr-day-badge.warn { background: var(--warn); }
+.awr-day-badge.crit { background: var(--crit); } .awr-day-badge.pending, .awr-day-badge.off { background: var(--muted); }
+.awr-legend { display: flex; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+.awr-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.awr-files { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.awr-files td, .awr-files th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.awr-err { color: var(--crit); }

@@ -120,6 +120,9 @@ async def startup_event():
     else:
         logger.error(message)
 
+    from query_reports import awr_weekly
+    app.state.weekly_task = asyncio.create_task(awr_weekly.weekly_loop())
+
     if user_store.is_empty():
         logger.warning("No hay usuarios en la web. Crea el primer administrador con: "
                        "python -m interface.backend.auth crear-usuario <usuario> --rol administrador")
@@ -129,6 +132,71 @@ async def startup_event():
         app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
     except Exception as e:
         logger.warning(f"No se pudieron montar archivos estáticos: {e}")
+
+
+_awr_cache: Dict[str, Any] = {"at": 0.0, "data": None}
+
+
+def _awr_overview() -> Dict[str, Any]:
+    from db import queries
+    from query_reports import awr_weekly as aw
+
+    cfg = aw.settings()
+    rows = [{k.lower(): v for k, v in r.items()} for r in queries.get_awr_snapshots(8)]
+    conf = queries.get_awr_settings()
+    interval = float(conf[0]["INTERVALO_MIN"]) if conf and conf[0].get("INTERVALO_MIN") else None
+    retention = float(conf[0]["RETENCION_DIAS"]) if conf and conf[0].get("RETENCION_DIAS") else None
+    data = aw.analyze_snapshots(rows, interval, datetime.now(), work_start=cfg["work_start"], work_end=cfg["work_end"])
+    data["retention_days"] = retention
+    return data
+
+
+@app.get("/api/awr/snapshots")
+async def awr_snapshots(_: Dict[str, str] = Depends(as_admin)):
+    """Snapshots AWR por día en horario laboral (solo SELECT; caché de 60 s)."""
+    import time
+
+    if _awr_cache["data"] is None or time.time() - _awr_cache["at"] > 60:
+        try:
+            _awr_cache["data"] = await run_in_threadpool(_awr_overview)
+            _awr_cache["at"] = time.time()
+        except Exception as exc:
+            logger.warning("AWR snapshots: %s", exc)
+            raise HTTPException(status_code=503, detail="No se pudo consultar DBA_HIST_SNAPSHOT.")
+    return _awr_cache["data"]
+
+
+@app.get("/api/awr/weekly")
+async def awr_weekly_status(_: Dict[str, str] = Depends(as_admin)):
+    from query_reports import awr_weekly as aw
+
+    cfg = aw.settings()
+    nxt = aw.next_run(datetime.now(), cfg["weekly_day"], cfg["weekly_hour"])
+    return {"enabled": cfg["weekly_enabled"], "state": aw.load_state(), "next_run": nxt.isoformat(timespec="minutes"),
+            "files": aw.list_reports()}
+
+
+@app.post("/api/awr/weekly/generate")
+async def awr_weekly_generate(_: Dict[str, str] = Depends(as_admin)):
+    """Genera ahora el informe de la semana en curso (sin sobrescribir uno existente)."""
+    from query_reports import awr_weekly as aw
+
+    monday, _fri = aw.week_bounds(datetime.now().date())
+    state = await run_in_threadpool(lambda: aw.run_weekly(monday, trigger="manual"))
+    if state.get("status") == "error":
+        raise HTTPException(status_code=502, detail=state.get("error") or "Error generando el informe.")
+    return state
+
+
+@app.get("/api/awr/weekly/download")
+async def awr_weekly_download(name: str, _: Dict[str, str] = Depends(as_admin)):
+    from query_reports import awr_weekly as aw
+
+    path = aw.report_path(name)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Informe no encontrado.")
+    return FileResponse(path, filename=path.name,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # Modelos
