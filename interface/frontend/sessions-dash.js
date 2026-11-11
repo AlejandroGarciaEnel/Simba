@@ -187,7 +187,7 @@ const SessionsDash = (() => {
         root.append(plot);
         const cursor = svg("line", { y1: m.t, y2: m.t + ih, class: "stroke-white/40", visibility: "hidden" });
         root.append(cursor);
-        const tip = el("div", { class: "pointer-events-none absolute top-2 z-10 min-w-44 rounded-lg bg-slate-950/95 px-3 py-2 text-xs text-slate-200 shadow-xl ring-1 ring-white/10", hidden: true });
+        const tip = el("div", { class: "tip pointer-events-none absolute top-2 z-10 min-w-44 rounded-lg bg-slate-950/95 px-3 py-2 text-xs text-slate-200 shadow-xl ring-1 ring-white/10", hidden: true });
         root.addEventListener("mousemove", (e) => {
             if (drag) return;
             const r = root.getBoundingClientRect();
@@ -259,7 +259,7 @@ const SessionsDash = (() => {
             svg("rect", { x: x0, y: 1, width: Math.max(4, x1 - x0), height: H - 2, fill: "none", stroke: "#818cf8", "stroke-width": 2, rx: 4 }),
             svg("rect", { x: x0 - 3, y: H / 2 - 10, width: 6, height: 20, rx: 3, fill: "#818cf8" }),
             svg("rect", { x: x1 - 3, y: H / 2 - 10, width: 6, height: 20, rx: 3, fill: "#818cf8" }));
-        return el("div", { class: "w-full" }, root);
+        return el("div", { class: "w-full xl:col-span-2" }, root);
     }
     function ovPointerDown(e, svgEl) {
         const r = svgEl.getBoundingClientRect();
@@ -289,7 +289,7 @@ const SessionsDash = (() => {
         const [t0, t1] = curRange();
         const label = win.from == null ? "Todo el histórico" : `${new Date(t0).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })} → ${fmtTime(t1)}`;
         box.replaceChildren(
-            el("div", { class: "flex flex-wrap items-center gap-2" },
+            el("div", { class: "flex flex-wrap items-center gap-2 xl:col-span-2" },
                 ...RANGES.map(([txt, v]) => el("button", {
                     class: "rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/10 transition hover:bg-indigo-500/30",
                     text: txt, onclick: () => applyRange(v) })),

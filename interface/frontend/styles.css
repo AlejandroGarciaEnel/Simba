@@ -564,3 +564,5 @@ body:not(.dark) #sessions-dash [class*="bg-emerald-500/10"] { background: #dcfce
 body:not(.dark) #sessions-dash [class*="bg-rose-500/20"] { background: #ffe4e6; }
 body:not(.dark) #sessions-dash [class*="bg-amber-500/20"] { background: #fef3c7; }
 body:not(.dark) #sessions-dash [class*="bg-indigo-500/20"] { background: #e0e7ff; }
+body:not(.dark) #sessions-dash .tip, body:not(.dark) #sessions-dash .tip * { color: #e2e8f0; }
+body:not(.dark) #sessions-dash .tip b { color: #f8fafc; }
