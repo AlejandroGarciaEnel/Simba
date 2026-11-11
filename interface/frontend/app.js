@@ -284,34 +284,6 @@ const AREA_LINKS = {
     Espacio: [{ label: "Ver histórico", view: "historico" }],
 };
 
-const AREA_GROUPS = [
-    ["Sesiones y bloqueos", "Quién está conectado y quién bloquea a quién", ["Bloqueos", "Sesiones", "Esperas", "Conexiones"]],
-    ["Rendimiento", "Carga del servidor y operaciones lentas", ["CPU", "Operaciones largas"]],
-    ["Espacio y errores", "Almacenamiento y fallos registrados", ["Espacio", "Errores"]],
-];
-
-function renderGroups(areas, filter) {
-    const used = new Set();
-    const groups = AREA_GROUPS.map(([title, sub, names]) => {
-        const list = areas.filter((a) => names.includes(a.area));
-        list.forEach((a) => used.add(a.area));
-        return [title, sub, list];
-    });
-    const rest = areas.filter((a) => !used.has(a.area));
-    if (rest.length) groups.push(["Otras áreas", "Resto de comprobaciones", rest]);
-    return groups.filter(([, , l]) => l.length).map(([title, sub, list]) => el("article", { class: "group-card" },
-        el("header", {}, el("h3", { text: title }), el("span", { text: `${list.length} ${list.length === 1 ? "área" : "áreas"}` })),
-        el("p", { class: "muted", text: sub }),
-        el("div", { class: "group-kpis" }, ["CRITICAL", "WARNING", "INFO", "OK"].map((s) => {
-            const n = list.filter((a) => a.severity === s).length;
-            return el("button", { type: "button", class: `gk gk-${SEV[s].cls}${n ? "" : " gk-zero"}${filter === SEV[s].cls ? " gk-active" : ""}`,
-                title: `Mostrar solo «${SEV[s].label}»`,
-                onclick: () => { EstadoPlus.setFilter(SEV[s].cls); renderHealth(); } },
-                el("small", { text: SEV[s].label }), el("strong", { text: n }));
-        })),
-        el("footer", { class: "muted", text: list.map((a) => a.area).join(" · ") })));
-}
-
 function renderHealth() {
     const c = state.check;
     EstadoPlus.add(c);
@@ -353,7 +325,6 @@ function renderHealth() {
                 el("div", {}, el("strong", { text: counts[s] }), el("span", { text: SEV[s].label }))))
     );
 
-    $("group-cards").replaceChildren(...renderGroups(areas, filter));
     const visible = (a) => !filter || SEV[a.severity].cls === filter;
     const attention = areas.filter((a) => SEV[a.severity].order >= 1 && visible(a));
     const fine = areas.filter((a) => SEV[a.severity].order < 1 && visible(a));
