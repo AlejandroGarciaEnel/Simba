@@ -798,8 +798,9 @@ function simpleTable(columns, rows, fmt = {}) {
 function openSqlDetail(card) {
     const c = mergedBoard().find((b) => b.sql_id === card.sql_id) || card;
     $("sql-dialog-title").replaceChildren(
+        el("small", { class: "dlg-kicker", text: "Detalle de SQL" }),
         el("h2", { class: "mono", text: c.sql_id }),
-        el("span", { class: "muted", text: [c.estado, c.prioridad, c.esquema, c.persona].filter(Boolean).join(" · ") }));
+        el("div", { class: "dlg-pills" }, [c.estado, c.prioridad, c.esquema, c.persona].filter(Boolean).map((t, i) => el("span", { class: `dlg-pill p${i}`, text: String(t) }))));
     const facts = [
         ["En el top", c.en_top == null ? "" : c.en_top ? "Sí" : "No"], ["CPU esta semana", c.cpu_h != null ? `${fmtNum(c.cpu_h, 1)} h (${fmtNum(c.pct_cpu, 1)} %)` : ""],
         ["CPU media", c.cpu_media_h != null ? `${fmtNum(c.cpu_media_h, 1)} h/sem` : ""], ["Ejecuciones/sem (media)", c.ejec_media != null ? fmtNum(c.ejec_media) : ""],
@@ -810,7 +811,7 @@ function openSqlDetail(card) {
     ].filter(([, v]) => v !== "" && v != null);
     const analysis = el("div", { id: "sql-analysis" });
     $("sql-dialog-body").replaceChildren(
-        el("dl", { class: "facts" }, facts.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: String(v) })])),
+        el("div", { class: "fact-grid" }, facts.map(([k, v]) => el("div", { class: "fact" }, el("span", { text: k }), el("strong", { text: String(v) })))),
         c.sql_text ? el("pre", { class: "sql-snippet", text: c.sql_text }) : null,
         c.query_mejora ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Propuesta de mejora" }), el("p", { text: c.query_mejora })) : null,
         c.notas || c.notas_analisis ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Notas del seguimiento" }),
