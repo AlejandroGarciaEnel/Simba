@@ -427,6 +427,39 @@ async def query_improvements(_: Dict[str, str] = Depends(as_consulta)):
     return await run_in_threadpool(get_query_improvements)
 
 
+@app.get("/api/query-board")
+async def query_board_overrides(_: Dict[str, str] = Depends(as_consulta)):
+    """Cambios locales del tablero de Queries (estado, prioridad, responsable, nota)."""
+    from query_reports import board_store
+
+    return {"overrides": await run_in_threadpool(board_store.get_all)}
+
+
+class QueryBoardUpdate(BaseModel):
+    estado: str | None = None
+    prioridad: str | None = None
+    persona: str | None = None
+    nota: str | None = None
+
+
+@app.put("/api/query-board/{sql_id}")
+async def query_board_update(sql_id: str, body: QueryBoardUpdate, user: Dict[str, str] = Depends(as_dba)):
+    """Mueve una SQL de columna o edita sus datos. No toca los Excel; solo guarda una capa local."""
+    from query_reports import board_store
+    from query_reports.advisor import get_query_improvements
+
+    changes = body.model_dump(exclude_unset=True)
+    try:
+        if changes.get("estado"):
+            states = (await run_in_threadpool(get_query_improvements)).get("states") or []
+            if changes["estado"] not in states:
+                raise ValueError("Estado no válido.")
+        record = await run_in_threadpool(board_store.update, sql_id, changes, user["username"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"sql_id": sql_id.strip().lower(), "override": record}
+
+
 @app.get("/api/sql-analysis/{sql_id}")
 async def sql_analysis(sql_id: str, force: bool = False, _: Dict[str, str] = Depends(as_dba)):
     """Análisis de una SQL problemática (planes, AWR, estadísticas, índices). Solo DBA; solo SELECT."""

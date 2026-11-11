@@ -512,6 +512,18 @@ const QUERY_KIND = {
 };
 const fmtNum = (n, d = 0) => n == null ? "n/d" : Number(n).toLocaleString("es-ES", { maximumFractionDigits: d });
 let queriesData = null;
+let queriesOverrides = {};
+let dragSqlId = null;
+
+// Aplica sobre el tablero del Excel los cambios locales (estado, prioridad, responsable, nota).
+function mergedBoard() {
+    return (queriesData?.board || []).map((c) => {
+        const o = queriesOverrides[c.sql_id];
+        if (!o) return c;
+        return { ...c, estado_excel: c.estado, estado: o.estado || c.estado, prioridad: o.prioridad || c.prioridad,
+            persona: o.persona || c.persona, nota_local: o.nota || "", editado: true, override: o };
+    });
+}
 let queriesMode = "tablero";
 let listSort = { key: "cpu_h", dir: -1 };
 
@@ -521,9 +533,14 @@ async function loadQueries(silent = false) {
         resetLive("queries");
     }
     try {
-        const data = await api("/query-improvements");
-        const changed = JSON.stringify(data) !== JSON.stringify(queriesData);
+        const [data, board] = await Promise.all([
+            api("/query-improvements"),
+            api("/query-board").catch(() => ({ overrides: queriesOverrides })),
+        ]);
+        const changed = JSON.stringify(data) !== JSON.stringify(queriesData)
+            || JSON.stringify(board.overrides) !== JSON.stringify(queriesOverrides);
         queriesData = data;
+        queriesOverrides = board.overrides || {};
         if (!silent || changed) renderQueries();
     } catch (err) {
         if (silent) throw err;
@@ -559,8 +576,8 @@ function renderQueries() {
         counter(String(k.estancadas), "Estancadas (varias semanas)"),
     );
     document.querySelectorAll("#queries-modes button").forEach((b) => b.classList.toggle("active", b.dataset.mode === queriesMode));
-    const body = queriesMode === "tablero" ? renderBoard(filteredCards(data.board || []), data.states || [])
-        : queriesMode === "lista" ? renderList(filteredCards(data.board || []))
+    const body = queriesMode === "tablero" ? renderBoard(filteredCards(mergedBoard()), data.states || [])
+        : queriesMode === "lista" ? renderList(filteredCards(mergedBoard()))
         : renderRecommendations(filteredCards(data.items));
     $("queries-body").replaceChildren(body);
 }
@@ -574,21 +591,126 @@ function cardMetric(c) {
     return c.en_top ? `${fmtNum(c.cpu_h, 1)} h CPU esta semana` : c.cpu_media_h != null ? `${fmtNum(c.cpu_media_h, 1)} h/sem (media) · fuera del top` : "fuera del top";
 }
 
+const PRIO_CLASS = { "CRÍTICA": "prio-alta", ALTA: "prio-alta", MEDIA: "prio-media", BAJA: "prio-baja" };
+
+async function saveBoard(sqlId, changes, okMsg) {
+    const before = queriesOverrides[sqlId];
+    try {
+        const { override } = await api(`/query-board/${sqlId}`, { method: "PUT", body: changes });
+        if (override) queriesOverrides[sqlId] = override; else delete queriesOverrides[sqlId];
+        renderQueries();
+        if (okMsg) toast(okMsg);
+        return true;
+    } catch (err) {
+        if (before) queriesOverrides[sqlId] = before;
+        renderQueries();
+        toast(err.message, "error");
+        return false;
+    }
+}
+
+function moveCard(sqlId, stateName) {
+    const card = mergedBoard().find((c) => c.sql_id === sqlId);
+    if (!card || card.estado === stateName) return;
+    const original = card.estado_excel ?? card.estado;
+    // Volver a la columna original del Excel elimina el cambio local de estado.
+    saveBoard(sqlId, { estado: stateName === original ? "" : stateName }, `${sqlId} → ${stateName}`);
+}
+
 function renderBoard(cards, states) {
-    const cols = states.filter((s) => s !== "Sin seguimiento" || cards.some((c) => c.estado === s));
+    const editable = can("dba");
+    const cols = states.filter((s) => s !== "Sin seguimiento" || editable || cards.some((c) => c.estado === s));
     return el("div", { class: "board" }, cols.map((stateName) => {
         const list = cards.filter((c) => c.estado === stateName)
             .sort((a, b) => (b.cpu_h ?? b.cpu_media_h ?? 0) - (a.cpu_h ?? a.cpu_media_h ?? 0));
-        return el("section", { class: "board-col" },
-            el("header", {}, el("strong", { text: stateName }), el("span", { class: "tag", text: String(list.length) })),
-            list.map((c) => el("button", { class: `board-card ${c.en_top ? "" : "board-card-out"}`, onclick: () => openSqlDetail(c) },
-                el("div", { class: "board-card-head" }, el("span", { class: "mono", text: c.sql_id }),
-                    el("span", { class: "tag", text: c.prioridad || "—" })),
-                el("small", { class: "muted", text: [c.esquema, c.persona || "sin asignar"].filter(Boolean).join(" · ") }),
-                el("small", { text: `${cardMetric(c)} · ${c.semanas_top} sem.` }),
-                c.mejora_pct != null ? el("small", { text: `Mejora ${fmtNum(c.mejora_pct, 1)} %` }) : null,
-                c.hallazgos.length ? el("small", { class: "board-hint", text: `💡 ${c.hallazgos.map((f) => QUERY_KIND[f.tipo]?.label || f.tipo).join(", ")}` }) : null)));
+        const cpu = list.reduce((sum, c) => sum + (c.cpu_h ?? 0), 0);
+        const col = el("section", { class: "board-col", "data-state": stateName },
+            el("header", {}, el("strong", { text: stateName }),
+                el("span", { class: "board-col-meta" },
+                    cpu ? el("small", { class: "muted", text: `${fmtNum(cpu, 1)} h` }) : null,
+                    el("span", { class: "tag", text: String(list.length) }))),
+            el("div", { class: "board-drop" },
+                list.map(renderBoardCard),
+                list.length ? null : el("p", { class: "board-empty", text: editable ? "Arrastra aquí una tarjeta" : "Sin SQL" })));
+        if (editable) {
+            col.addEventListener("dragover", (e) => { if (dragSqlId) { e.preventDefault(); col.classList.add("drop-over"); } });
+            col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("drop-over"); });
+            col.addEventListener("drop", (e) => {
+                e.preventDefault();
+                col.classList.remove("drop-over");
+                if (dragSqlId) moveCard(dragSqlId, stateName);
+                dragSqlId = null;
+            });
+        }
+        return col;
     }));
+}
+
+function renderBoardCard(c) {
+    const editable = can("dba");
+    const prio = PRIO_CLASS[String(c.prioridad || "").toUpperCase()] || "";
+    const card = el("div", {
+        class: `board-card ${prio} ${c.en_top ? "" : "board-card-out"}${c.editado ? " board-card-edited" : ""}`,
+        role: "button", tabindex: "0", draggable: editable ? "true" : null,
+        title: editable ? "Arrastra para cambiar de columna · clic para abrir la ficha" : "Abrir ficha",
+        onclick: () => openSqlDetail(c),
+        onkeydown: (e) => { if (e.key === "Enter") openSqlDetail(c); },
+    },
+        el("div", { class: "board-card-head" }, el("span", { class: "mono", text: c.sql_id }),
+            el("span", { class: "tag", text: c.prioridad || "—" })),
+        el("small", { class: "muted", text: [c.esquema, c.persona || "sin asignar"].filter(Boolean).join(" · ") }),
+        el("small", { text: `${cardMetric(c)} · ${c.semanas_top} sem.` }),
+        c.mejora_pct != null ? el("small", { text: `Mejora ${fmtNum(c.mejora_pct, 1)} %` }) : null,
+        c.nota_local ? el("small", { class: "board-note", text: `📝 ${c.nota_local}` }) : null,
+        c.hallazgos.length ? el("small", { class: "board-hint", text: `💡 ${c.hallazgos.map((f) => QUERY_KIND[f.tipo]?.label || f.tipo).join(", ")}` }) : null,
+        c.estado_excel ? el("small", { class: "board-moved", text: `↪ en el Excel: ${c.estado_excel}` }) : null);
+    if (editable) {
+        card.addEventListener("dragstart", (e) => {
+            dragSqlId = c.sql_id;
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", c.sql_id);
+            requestAnimationFrame(() => card.classList.add("dragging"));
+        });
+        card.addEventListener("dragend", () => {
+            dragSqlId = null;
+            card.classList.remove("dragging");
+            document.querySelectorAll(".board-col.drop-over").forEach((n) => n.classList.remove("drop-over"));
+        });
+    }
+    return card;
+}
+
+function renderBoardEditor(c) {
+    const states = queriesData?.states || [];
+    const prios = [...new Set(["CRÍTICA", "ALTA", "MEDIA", "BAJA", String(c.prioridad || "").toUpperCase()].filter(Boolean))];
+    const o = c.override || {};
+    const sel = (id, options, value) => el("select", { id }, options.map((v) => el("option", { value: v, text: v, selected: v === value })));
+    const field = (label, node) => el("label", { class: "editor-field" }, el("span", { class: "rec-label", text: label }), node);
+    const note = el("textarea", { id: "be-nota", rows: 4, maxlength: 4000, placeholder: "Escribe una nota para el equipo…" });
+    note.value = o.nota || "";
+    return el("form", { class: "board-editor", onsubmit: async (e) => {
+        e.preventDefault();
+        const original = c.estado_excel ?? c.estado;
+        const estado = $("be-estado").value, prioridad = $("be-prio").value;
+        const ok = await saveBoard(c.sql_id, {
+            estado: estado === original ? "" : estado,
+            prioridad: prioridad === String(queriesData.board.find((b) => b.sql_id === c.sql_id)?.prioridad || "").toUpperCase() ? "" : prioridad,
+            persona: $("be-persona").value, nota: note.value,
+        }, "Cambios guardados");
+        if (ok) $("sql-dialog").close();
+    } },
+        el("h3", { text: "Editar en el tablero" }),
+        el("div", { class: "editor-grid" },
+            field("Estado", sel("be-estado", states, c.estado)),
+            field("Prioridad", sel("be-prio", prios, String(c.prioridad || "").toUpperCase())),
+            field("Responsable", el("input", { id: "be-persona", maxlength: 80, value: c.persona || "", placeholder: "sin asignar" }))),
+        field("Nota", note),
+        el("div", { class: "inline-form" },
+            el("button", { class: "btn btn-primary", type: "submit", text: "Guardar" }),
+            c.editado ? el("button", { class: "btn", type: "button", text: "Restablecer al Excel", onclick: async () => {
+                if (await saveBoard(c.sql_id, { estado: "", prioridad: "", persona: "", nota: "" }, "Restablecida")) $("sql-dialog").close();
+            } }) : null,
+            o.updated_by ? el("small", { class: "muted", text: `Último cambio: ${o.updated_by} · ${fmtDate(o.updated_at)}` }) : null));
 }
 
 const LIST_COLUMNS = [
@@ -673,7 +795,7 @@ function simpleTable(columns, rows, fmt = {}) {
 }
 
 function openSqlDetail(card) {
-    const c = (queriesData?.board || []).find((b) => b.sql_id === card.sql_id) || card;
+    const c = mergedBoard().find((b) => b.sql_id === card.sql_id) || card;
     $("sql-dialog-title").replaceChildren(
         el("h2", { class: "mono", text: c.sql_id }),
         el("span", { class: "muted", text: [c.estado, c.prioridad, c.esquema, c.persona].filter(Boolean).join(" · ") }));
@@ -694,6 +816,9 @@ function openSqlDetail(card) {
             el("p", { class: "pre-line", text: [c.notas, c.notas_analisis].filter(Boolean).join("\n\n") })) : null,
         c.hallazgos?.length ? el("h3", { text: "Recomendaciones del informe" }) : null,
         c.hallazgos?.length ? renderFindings(c.hallazgos) : null,
+        can("dba") && queriesData?.board?.some((b) => b.sql_id === c.sql_id) ? renderBoardEditor(c)
+            : c.nota_local ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Nota del equipo" }),
+                el("p", { class: "pre-line", text: c.nota_local })) : null,
         el("div", { class: "inline-form" },
             can("dba") ? el("button", { class: "btn btn-primary", text: "🔬 Analizar SQL en la BD", onclick: () => loadSqlAnalysis(c.sql_id, analysis) }) : null,
             askButton(c.sql_id)),
