@@ -966,6 +966,28 @@ def get_blocked_waits(limit: int = 10) -> list[dict[str, Any]]:
     return _fetchall_as_dicts(sql, {"limit": limit})
 
 
+def get_blocked_session_list(limit: int = 300) -> list[dict[str, Any]]:
+    """Todas las sesiones bloqueadas (cualquier nodo del RAC) con su bloqueante directo y final. Solo SELECT."""
+    sql = """
+        SELECT
+            w.inst_id AS instancia, w.sid AS sid, w.serial# AS serial,
+            w.username AS usuario, w.machine AS maquina, w.program AS programa, w.module AS modulo,
+            w.event AS evento, w.seconds_in_wait AS segundos_espera,
+            NVL(w.sql_id, w.prev_sql_id) AS sql_id,
+            (SELECT SUBSTR(s.sql_text, 1, 200) FROM gv$sql s
+              WHERE s.inst_id = w.inst_id AND s.sql_id = NVL(w.sql_id, w.prev_sql_id) AND ROWNUM = 1) AS sql_texto,
+            w.blocking_instance AS inst_bloqueante, w.blocking_session AS sid_bloqueante,
+            w.final_blocking_instance AS inst_raiz, w.final_blocking_session AS sid_raiz,
+            o.owner || '.' || o.object_name AS objeto
+        FROM gv$session w
+        LEFT JOIN dba_objects o ON o.object_id = w.row_wait_obj#
+        WHERE w.blocking_session IS NOT NULL
+        ORDER BY w.seconds_in_wait DESC
+        FETCH FIRST :limit ROWS ONLY
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
 def get_root_blockers(limit: int = 10) -> list[dict[str, Any]]:
     """
     Sesiones que originan los bloqueos (bloqueante final de la cadena, en cualquier nodo del RAC), con quién

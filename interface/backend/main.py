@@ -419,6 +419,33 @@ async def inactive_sessions(_: Dict[str, str] = Depends(as_dba)):
     return {"sessions": _inactive_cache["rows"], "taken_at": _inactive_cache.get("taken"), "total": len(_inactive_cache["rows"])}
 
 
+_blocking_cache: Dict[str, Any] = {"at": 0.0}
+BLOCKING_TTL_S = 15
+
+
+@app.get("/api/blocking-sessions")
+async def blocking_sessions(_: Dict[str, str] = Depends(as_dba)):
+    """Sesiones bloqueantes (raíz) y las sesiones que bloquea cada una (solo SELECT; caché de 15 s)."""
+    import time
+
+    from db import queries
+
+    if time.monotonic() - _blocking_cache["at"] > BLOCKING_TTL_S:
+        def work():
+            roots = queries.get_root_blockers(50)
+            waiting = queries.get_blocked_session_list()
+            return ([{k.lower(): v for k, v in r.items()} for r in roots],
+                    [{k.lower(): v for k, v in r.items()} for r in waiting])
+        try:
+            roots, waiting = await run_in_threadpool(work)
+        except Exception:
+            logger.exception("Error al listar sesiones bloqueantes")
+            raise HTTPException(status_code=500, detail="No se pudo obtener el detalle de bloqueos.")
+        _blocking_cache.update(at=time.monotonic(), roots=roots, waiting=waiting,
+                               taken=datetime.now().isoformat(timespec="seconds"))
+    return {"roots": _blocking_cache["roots"], "waiting": _blocking_cache["waiting"], "taken_at": _blocking_cache.get("taken")}
+
+
 @app.get("/api/query-improvements")
 async def query_improvements(_: Dict[str, str] = Depends(as_consulta)):
     """Recomendaciones sobre el informe semanal de queries y su seguimiento (lectura de Excel, sin LLM)."""

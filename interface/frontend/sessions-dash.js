@@ -227,7 +227,51 @@ const SessionsDash = (() => {
                         class: "ml-auto rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-400", text: "Abrir listado →" })
                 : el("span", { class: "ml-auto text-xs text-slate-500", text: "Requiere rol dba" }));
     }
+    let blocking = null;
+
+    function chainsPanel() {
+        const box = el("section", { class: PANEL }, el("div", { class: "mb-3 flex items-center justify-between" },
+            el("h4", { class: "text-sm font-medium text-slate-200", text: "🔗 Cadenas de bloqueo · quién bloquea a quién" }),
+            el("span", { class: "text-xs text-slate-500", text: `Actualizado ${blocking.taken_at ? blocking.taken_at.slice(11) : ""}` })));
+        const key = (i, sid) => `${i}:${sid}`;
+        const byRoot = new Map();
+        blocking.waiting.forEach((w) => {
+            const k = key(w.inst_raiz ?? w.inst_bloqueante, w.sid_raiz ?? w.sid_bloqueante);
+            (byRoot.get(k) || byRoot.set(k, []).get(k)).push(w);
+        });
+        const chip = (t, cls = "bg-white/10 text-slate-200") => el("span", { class: `rounded-full px-2 py-0.5 text-xs ${cls}`, text: t });
+        blocking.roots.forEach((r) => {
+            const victims = byRoot.get(key(r.instancia, r.sid)) || [];
+            const sev = level(r.segundos_espera, T.wait);
+            const card = el("details", { class: "group mb-3 rounded-xl bg-slate-950/50 ring-1 ring-white/10", open: victims.length <= 8 },
+                el("summary", { class: "flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3" },
+                    el("span", { class: `text-lg ${TONE[sev].text}`, text: "🔒" }),
+                    el("b", { class: "text-slate-100", text: `${r.usuario || "?"} · inst ${r.instancia} · SID ${r.sid},${r.serial}` }),
+                    chip(`bloquea a ${r.sesiones_bloqueadas}`, "bg-rose-500/20 text-rose-300"),
+                    chip(`espera máx. ${fmtSeconds(r.segundos_espera)}`, "bg-amber-500/20 text-amber-300"),
+                    chip(r.estado === "ACTIVE" ? "ACTIVA" : `inactiva ${fmtSeconds(r.segundos_ultima_llamada)}`),
+                    r.objeto ? chip(r.objeto, "bg-indigo-500/20 text-indigo-300") : null),
+                el("div", { class: "grid gap-1 px-4 pb-3 text-xs text-slate-400" },
+                    el("div", { text: `Origen: ${[r.maquina, r.programa, r.modulo].filter(Boolean).join(" · ") || "—"}` }),
+                    r.sql_id ? el("div", { class: "font-mono", text: `SQL ${r.sql_id} (${r.tipo_sql}): ${r.sql_texto || "—"}` }) : null),
+                victims.length ? el("div", { class: "overflow-x-auto px-4 pb-4" }, el("table", { class: "w-full text-left text-xs" },
+                    el("thead", {}, el("tr", { class: "uppercase tracking-wider text-slate-500" },
+                        ["Sesión bloqueada", "Usuario", "Origen", "Espera", "Evento", "Vía", "SQL"].map((h) => el("th", { class: "px-2 py-1 font-medium", text: h })))),
+                    el("tbody", { class: "divide-y divide-white/5" }, victims.map((v) => el("tr", { class: "text-slate-200" },
+                        el("td", { class: "px-2 py-1 font-mono", text: `inst ${v.instancia} · ${v.sid},${v.serial}` }),
+                        el("td", { class: "px-2 py-1", text: v.usuario || "—" }),
+                        el("td", { class: "px-2 py-1", text: [v.maquina, v.programa].filter(Boolean).join(" · ") }),
+                        el("td", { class: `px-2 py-1 ${TONE[level(v.segundos_espera, T.wait)].text}`, text: fmtSeconds(v.segundos_espera) }),
+                        el("td", { class: "px-2 py-1", text: v.evento || "" }),
+                        el("td", { class: "px-2 py-1", text: v.sid_bloqueante === r.sid && v.inst_bloqueante === r.instancia ? "directo" : `SID ${v.sid_bloqueante}` }),
+                        el("td", { class: "max-w-xs truncate px-2 py-1 font-mono", title: v.sql_texto || "", text: v.sql_id ? `${v.sql_id} ${v.sql_texto || ""}` : "—" })))))) : null);
+            box.append(card);
+        });
+        return box;
+    }
+
     function blockersTable() {
+        if (blocking?.roots?.length) return chainsPanel();
         const blo = (current?.findings || []).find((f) => f.area === "Bloqueos");
         const rows = blo?.details || [];
         const box = el("section", { class: PANEL }, el("h4", { class: "mb-3 text-sm font-medium text-slate-200", text: "Sesiones bloqueantes (última revisión)" }));
@@ -278,6 +322,9 @@ const SessionsDash = (() => {
     async function update(check) {
         if (check) { current = check; addPoint(toPoint(check)); }
         await seed();
+        if (typeof can === "function" && can("dba")) {
+            try { blocking = await api("/blocking-sessions"); } catch { blocking = null; }
+        }
         render();
     }
 
