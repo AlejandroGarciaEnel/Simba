@@ -110,7 +110,7 @@ const SessionsDash = (() => {
     }
     const geom = { W: 900, H: 250, m: { l: 52, r: 16, t: 14, b: 30 } };
 
-    function timeSeries(id, title, series, thresholds) {
+    function timeSeries(id, title, series, thresholds, opts = {}) {
         const { W, H, m } = geom;
         const iw = W - m.l - m.r, ih = H - m.t - m.b;
         const box = el("section", { class: PANEL }, el("h4", { class: "mb-2 text-base font-medium text-slate-200", text: title }));
@@ -143,15 +143,31 @@ const SessionsDash = (() => {
         const plot = svg("g", { "clip-path": `url(#${clip})` });
         (thresholds || []).forEach((th) => plot.append(
             svg("line", { x1: m.l, x2: W - m.r, y1: Y(th.v), y2: Y(th.v), stroke: TONE[th.cls].hex, "stroke-dasharray": "6 5", "stroke-width": 1 })));
+        if (opts.band) {
+            // Franjas rojas: periodos con bloqueos activos.
+            points.forEach((p, i) => {
+                if (!p[opts.band]) return;
+                const next = points[i + 1]?.t ?? p.t + 60000;
+                plot.append(svg("rect", { x: X(p.t), y: m.t, width: Math.max(2, X(next) - X(p.t)), height: ih, fill: "#fb7185", "fill-opacity": ".10" }));
+            });
+        }
         series.forEach((s) => {
-            const d = points.map((p, i) => `${i ? "L" : "M"}${X(p.t).toFixed(1)},${Y(p[s.key]).toFixed(1)}`).join(" ");
+            const d = points.map((p, i) => {
+                const x = X(p.t).toFixed(1), y = Y(p[s.key]).toFixed(1);
+                if (!i) return `M${x},${y}`;
+                return opts.step ? `H${x} V${y}` : `L${x},${y}`;
+            }).join(" ");
             const gid = `ts-${id}-${s.key}`;
             root.querySelector("defs").append(svg("linearGradient", { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 },
                 svg("stop", { offset: "0%", "stop-color": s.color, "stop-opacity": ".35" }),
                 svg("stop", { offset: "100%", "stop-color": s.color, "stop-opacity": "0" })));
             plot.append(svg("path", { d: `${d} L${X(points[points.length - 1].t)},${Y(0)} L${X(points[0].t)},${Y(0)} Z`, fill: `url(#${gid})` }));
             plot.append(svg("path", { d, fill: "none", stroke: s.color, "stroke-width": 2.4, "stroke-linejoin": "round" }));
-            points.forEach((p) => plot.append(svg("circle", { cx: X(p.t), cy: Y(p[s.key]), r: 3, fill: s.color })));
+            if (vis.length <= 60) points.forEach((p) => plot.append(svg("circle", { cx: X(p.t), cy: Y(p[s.key]), r: 3, fill: s.color })));
+            else {
+                const last = points[points.length - 1];
+                plot.append(svg("circle", { cx: X(last.t), cy: Y(last[s.key]), r: 4, fill: s.color, stroke: "#0f172a", "stroke-width": 1.5 }));
+            }
         });
         root.append(plot);
         const cursor = svg("line", { y1: m.t, y2: m.t + ih, class: "stroke-white/40", visibility: "hidden" });
@@ -168,7 +184,7 @@ const SessionsDash = (() => {
             tip.hidden = false;
             tip.style.left = `${Math.max(0, Math.min(e.clientX - r.left + 14, r.width - 190))}px`;
             tip.replaceChildren(el("b", { class: "mb-1 block text-slate-100", text: new Date(p.t).toLocaleString("es-ES") }),
-                ...series.map((s) => el("div", { class: "flex items-center gap-1.5" }, dot(s.color), `${s.label}: ${p[s.key]}`)));
+                ...series.map((s) => el("div", { class: "flex items-center gap-1.5" }, dot(s.color), `${s.label}: ${p[s.key]}${opts.unit || ""}`)));
         });
         root.addEventListener("mouseleave", () => { cursor.setAttribute("visibility", "hidden"); tip.hidden = true; });
         box.append(el("div", { class: "relative" }, root, tip),
@@ -212,7 +228,9 @@ const SessionsDash = (() => {
                 [{ v: T.inactive.warn, cls: "warn" }]),
             timeSeries("blocked", "Sesiones bloqueadas y bloqueantes", [
                 { key: "blocked", label: "Bloqueadas", color: "#fb7185" },
-                { key: "blockers", label: "Bloqueantes", color: "#fbbf24" }]));
+                { key: "blockers", label: "Bloqueantes", color: "#fbbf24" }], null, { step: true, band: "blocked" }),
+            timeSeries("wait", "Espera máxima de una sesión bloqueada (s)", [{ key: "wait", label: "Espera máx.", color: "#c084fc" }],
+                [{ v: T.wait.warn, cls: "warn" }, { v: T.wait.crit, cls: "crit" }], { step: true, band: "blocked", unit: " s" }));
     }
 
     // El listado completo vive en su propia página (/inactivas), solo para dba/administrador.
