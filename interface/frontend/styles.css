@@ -512,3 +512,22 @@ body.assistant-open .assistant { width: var(--assistant-w); }
 .sql-dialog-body > .rec, .sql-dialog-body .board-editor { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; }
 .sql-dialog-body > h3 { margin: 4px 0 0; }
 .sql-dialog-body .inline-form { position: sticky; bottom: -28px; padding: 10px 0; background: var(--bg); }
+
+/* ---- Resumen por grupos (inspirado en PDI Tracker) ---- */
+.group-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 14px 0; }
+.group-card { background: var(--surface); border-radius: 16px; border-top: 4px solid var(--primary); box-shadow: var(--shadow); padding: 14px 16px; display: grid; gap: 8px; min-width: 0; }
+.group-card header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.group-card h3 { margin: 0; font-size: 16px; color: var(--primary-2); }
+.group-card header span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.group-card p, .group-card footer { margin: 0; font-size: 12px; }
+.group-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.gk { border: 0; border-radius: 12px; padding: 8px 4px; display: grid; gap: 2px; justify-items: center; cursor: pointer; font: inherit; transition: transform .12s; }
+.gk:hover { transform: translateY(-2px); }
+.gk small { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; opacity: .85; }
+.gk strong { font-size: 26px; line-height: 1.1; }
+.gk-crit { background: color-mix(in srgb, var(--crit) 14%, var(--surface)); color: var(--crit); }
+.gk-warn { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
+.gk-info { background: color-mix(in srgb, var(--info) 14%, var(--surface)); color: var(--info); }
+.gk-ok { background: color-mix(in srgb, var(--ok) 14%, var(--surface)); color: var(--ok); }
+.gk-zero { opacity: .55; }
+.gk-active { outline: 2px solid currentColor; }
