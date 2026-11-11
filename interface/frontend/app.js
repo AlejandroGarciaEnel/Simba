@@ -287,15 +287,27 @@ function renderHealth() {
         `Datos de ${fmtDate(c.created_at)} (${ago(c.created_at)}) · ` +
         (c.from_cache ? "revisión reutilizada (caché)" : "revisión recién ejecutada");
 
+    const heroCls = SEV[c.overall]?.cls || "ok";
+    $("status-hero").className = `status-hero hero-${heroCls}`;
+    $("hero-icon").textContent = { ok: "✓", info: "i", warn: "!", crit: "✕" }[heroCls];
+
     const counts = { OK: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
     areas.forEach((a) => { counts[a.severity] += 1; });
+    const TILE_ICON = { CRITICAL: "🚨", WARNING: "⚠️", INFO: "ℹ️", OK: "✅" };
     $("counters").replaceChildren(
         ...["CRITICAL", "WARNING", "INFO", "OK"].map((s) =>
-            el("div", { class: `counter sev-border-${SEV[s].cls}` },
-                el("strong", { text: counts[s] }), el("span", { text: SEV[s].label })))
+            el("div", { class: `counter tile-${SEV[s].cls}${counts[s] ? "" : " tile-zero"}` },
+                el("span", { class: "tile-ico", text: TILE_ICON[s] }),
+                el("div", {}, el("strong", { text: counts[s] }), el("span", { text: SEV[s].label }))))
     );
 
-    $("area-cards").replaceChildren(...areas.map(renderAreaCard));
+    // CPU siempre visible (es la métrica viva); el resto se separa en "atención" y "en orden"
+    const attention = areas.filter((a) => SEV[a.severity].order >= 1);
+    const fine = areas.filter((a) => SEV[a.severity].order < 1);
+    $("attn-title").hidden = !attention.length;
+    $("ok-title").hidden = !fine.length;
+    $("area-cards").replaceChildren(...attention.map(renderAreaCard));
+    $("ok-cards").replaceChildren(...fine.map(renderAreaCard));
 
     const detail = $("detail-panel");
     detail.dataset.loadedFor = "";
@@ -303,13 +315,19 @@ function renderHealth() {
 }
 
 function renderCpuNodes(rows) {
-    return el("div", { class: "cpu-nodes" }, rows.map((r) => {
-        const v = Number(r.pct) || 0;
+    const R = 34, C = 2 * Math.PI * R;
+    return el("div", { class: "gauges" }, rows.map((r) => {
+        const v = Math.min(100, Math.max(0, Number(r.pct) || 0));
         const cls = v >= 85 ? "crit" : v >= 60 ? "warn" : "ok";
-        return el("div", { class: `cpu-row${r.nodo === "Media" ? " cpu-avg" : ""}` },
-            el("span", { class: "cpu-label", text: r.nodo }),
-            el("span", { class: "cpu-bar" }, el("i", { class: cls, style: `width:${Math.min(100, v)}%` })),
-            el("strong", { text: `${v.toFixed(1)} %` }));
+        const ns = "http://www.w3.org/2000/svg";
+        const mk = (tag, attrs) => { const n = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([k, val]) => n.setAttribute(k, val)); return n; };
+        const svg = mk("svg", { viewBox: "0 0 80 80", class: "gauge-svg" });
+        svg.append(
+            mk("circle", { cx: 40, cy: 40, r: R, class: "gauge-bg" }),
+            mk("circle", { cx: 40, cy: 40, r: R, class: `gauge-fg g-${cls}`, "stroke-dasharray": `${(C * v / 100).toFixed(1)} ${C.toFixed(1)}`, transform: "rotate(-90 40 40)" }));
+        return el("div", { class: `gauge${r.nodo === "Media" ? " gauge-avg" : ""}` },
+            el("div", { class: "gauge-wrap" }, svg, el("strong", { class: "gauge-val", text: `${v.toFixed(0)}%` })),
+            el("span", { class: "gauge-label", text: r.nodo }));
     }));
 }
 
@@ -937,7 +955,8 @@ function bindEvents() {
         initTheme();
     });
     $("tabs").addEventListener("click", (e) => {
-        if (e.target.dataset.view) switchView(e.target.dataset.view);
+        const tab = e.target.closest("[data-view]");
+        if (tab) switchView(tab.dataset.view);
     });
 
     $("refresh-btn").addEventListener("click", () => loadHealth(false));

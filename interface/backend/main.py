@@ -391,6 +391,12 @@ async def clear_history(response: Response, x_session_id: str | None = Header(de
     }
 
 
+@app.get("/inactivas", include_in_schema=False)
+async def inactive_sessions_page():
+    """Página con el listado completo de sesiones inactivas (la API exige rol dba)."""
+    return FileResponse(FRONTEND_DIR / "inactivas.html")
+
+
 _inactive_cache: Dict[str, Any] = {"at": 0.0, "rows": []}
 INACTIVE_LIST_TTL_S = 60
 

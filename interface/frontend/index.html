@@ -39,11 +39,11 @@
                 </div>
             </div>
             <nav class="tabs" id="tabs">
-                <button class="tab active" data-view="estado">Estado</button>
-                <button class="tab" data-view="sesiones">Sesiones</button>
-                <button class="tab" data-view="queries">Queries</button>
-                <button class="tab" data-view="historico">Histórico</button>
-                <button class="tab" data-view="usuarios" data-min-role="administrador">Usuarios</button>
+                <button class="tab active" data-view="estado"><span class="tab-ico">📊</span>Estado</button>
+                <button class="tab" data-view="sesiones"><span class="tab-ico">👥</span>Sesiones</button>
+                <button class="tab" data-view="queries"><span class="tab-ico">🧮</span>Queries</button>
+                <button class="tab" data-view="historico"><span class="tab-ico">🕘</span>Histórico</button>
+                <button class="tab" data-view="usuarios" data-min-role="administrador"><span class="tab-ico">🔑</span>Usuarios</button>
             </nav>
             <div class="topbar-right">
                 <span class="conn" id="conn" title="Estado de la conexión">
@@ -65,8 +65,9 @@
                 <section class="view" id="view-estado">
                     <div class="status-hero" id="status-hero">
                         <div class="status-main">
-                            <span class="sev-pill" id="overall-pill">—</span>
+                            <span class="hero-icon" id="hero-icon">…</span>
                             <div>
+                                <span class="sev-pill" id="overall-pill">—</span>
                                 <h2 id="overall-title">Cargando revisión…</h2>
                                 <p class="muted" id="overall-meta"></p>
                             </div>
@@ -83,7 +84,10 @@
                     <p class="note">ℹ️ Los hallazgos son indicios, no causas confirmadas. Las recomendaciones son sugerencias:
                         antes de actuar, debe verificarlas el equipo funcional.</p>
 
+                    <h3 class="section-title" id="attn-title" hidden>Requiere atención</h3>
                     <div class="cards" id="area-cards"></div>
+                    <h3 class="section-title" id="ok-title" hidden>Todo en orden</h3>
+                    <div class="cards cards-ok" id="ok-cards"></div>
 
                     <details class="panel" id="detail-panel" data-min-role="dba">
                         <summary>Detalle técnico de la revisión <span class="muted">(DBA)</span></summary>

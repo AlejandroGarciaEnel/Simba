@@ -22,9 +22,10 @@ QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
 # Salvaguarda defensiva: nunca devolver más filas que esto, aunque una query
 # sin límite explícito (p. ej. get_sga_info) devuelva un resultado inesperado.
 HARD_ROW_LIMIT = 500
+INACTIVE_LIST_MAX_ROWS = 20000  # el listado completo de inactivas no debe truncarse a 500
 
 
-def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, Any]]:
+def _fetchall_as_dicts(sql: str, params: dict | None = None, *, max_rows: int = HARD_ROW_LIMIT) -> list[dict[str, Any]]:
     # nombre de la función RF llamante (db.queries.get_xxx), para identificar la query en los logs
     operation = inspect.stack()[1].function
     start = time.perf_counter()
@@ -45,10 +46,10 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, A
         logger.error("query_error op=%s duration_ms=%.1f", operation, duration_ms)
         raise
 
-    truncated = len(rows) > HARD_ROW_LIMIT
+    truncated = len(rows) > max_rows
     if truncated:
-        rows = rows[:HARD_ROW_LIMIT]
-        logger.warning("query_truncated op=%s rows=%d limit=%d", operation, len(rows), HARD_ROW_LIMIT)
+        rows = rows[:max_rows]
+        logger.warning("query_truncated op=%s rows=%d limit=%d", operation, len(rows), max_rows)
 
     duration_ms = (time.perf_counter() - start) * 1000
     logger.info("query_ok op=%s duration_ms=%.1f rows=%d", operation, duration_ms, len(rows))
@@ -1104,7 +1105,7 @@ def get_cluster_inactive_session_list() -> list[dict[str, Any]]:
           AND s.type = 'USER'
         ORDER BY s.last_call_et DESC
     """
-    return _fetchall_as_dicts(sql)
+    return _fetchall_as_dicts(sql, max_rows=INACTIVE_LIST_MAX_ROWS)
 
 
 # ── Análisis de una SQL concreta (solo DBA en la web) ─────────────────────────

@@ -215,68 +215,18 @@ const SessionsDash = (() => {
                 { key: "blockers", label: "Bloqueantes", color: "#fbbf24" }]));
     }
 
-    // ---- Listado completo de sesiones inactivas (bajo demanda, solo DBA) ----
-    const inact = { open: false, loading: false, data: null, error: "", q: "", sort: "inactiva_s", dir: -1 };
-    async function loadInactive() {
-        inact.loading = true; inact.error = ""; renderInactive();
-        try { inact.data = await api("/inactive-sessions"); }
-        catch (err) { inact.error = err.message; }
-        inact.loading = false; renderInactive();
+    // El listado completo vive en su propia página (/inactivas), solo para dba/administrador.
+    function inactiveLink() {
+        const allowed = typeof can === "function" && can("dba");
+        return el("section", { class: `${PANEL} flex flex-wrap items-center gap-4` },
+            el("div", {},
+                el("h4", { class: "text-base font-medium text-slate-200", text: "Listado completo de sesiones inactivas" }),
+                el("p", { class: "text-sm text-slate-400", text: "Todas las sesiones inactivas > 30 min de ambos nodos, con filtros, orden y exportación." })),
+            allowed
+                ? el("a", { href: "/inactivas", target: "_blank", rel: "noopener",
+                        class: "ml-auto rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-400", text: "Abrir listado ↗" })
+                : el("span", { class: "ml-auto text-xs text-slate-500", text: "Requiere rol dba" }));
     }
-    function csv(rows) {
-        const cols = ["instancia", "sid", "serial", "usuario", "usuario_so", "maquina", "programa", "modulo", "inactiva_s", "conexion"];
-        const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-        return [cols.join(";"), ...rows.map((r) => cols.map((c) => esc(r[c])).join(";"))].join("\n");
-    }
-    function renderInactive() {
-        const box = document.getElementById("sessions-inactive");
-        if (!box) return;
-        const head = el("div", { class: "flex flex-wrap items-center gap-3" },
-            el("h4", { class: "text-base font-medium text-slate-200", text: "Todas las sesiones inactivas > 30 min" }),
-            !(typeof can === "function" && can("dba")) ? el("span", { class: "ml-auto text-xs text-slate-500", text: "Requiere rol dba" }) :
-            el("button", { class: "ml-auto rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-indigo-400",
-                text: inact.open ? "Ocultar listado" : "Ver listado completo",
-                onclick: () => { inact.open = !inact.open; if (inact.open && !inact.data) loadInactive(); else renderInactive(); } }));
-        const kids = [head];
-        if (inact.open) {
-            if (inact.loading) kids.push(el("p", { class: "py-8 text-center text-sm text-slate-400", text: "Consultando Oracle…" }));
-            else if (inact.error) kids.push(el("p", { class: "py-6 text-center text-sm text-rose-300", text: inact.error }));
-            else if (inact.data) {
-                const all = inact.data.sessions;
-                const q = inact.q.toLowerCase();
-                const rows = all.filter((r) => !q || [r.usuario, r.maquina, r.programa, r.modulo, r.usuario_so].some((v) => String(v || "").toLowerCase().includes(q)))
-                    .sort((a, b) => (a[inact.sort] > b[inact.sort] ? 1 : a[inact.sort] < b[inact.sort] ? -1 : 0) * inact.dir);
-                const byUser = {};
-                all.forEach((r) => { byUser[r.usuario || "—"] = (byUser[r.usuario || "—"] || 0) + 1; });
-                const topUsers = Object.entries(byUser).sort((a, b) => b[1] - a[1]).slice(0, 6);
-                const cols = [["usuario", "Usuario"], ["maquina", "Máquina"], ["programa", "Programa"], ["modulo", "Módulo"],
-                    ["instancia", "Inst."], ["inactiva_s", "Inactiva"], ["conexion", "Conectada desde"]];
-                const search = el("input", { class: "w-64 rounded-lg bg-slate-950/60 px-3 py-2 text-sm text-slate-100 ring-1 ring-white/10 outline-none focus:ring-indigo-400",
-                    placeholder: "Filtrar usuario, máquina, programa…", value: inact.q });
-                search.addEventListener("input", () => { inact.q = search.value; renderInactive(); document.querySelector("#sessions-inactive input").focus(); });
-                const trunc = inact.data.total >= 500 ? " (límite de 500 filas: se muestran las más antiguas)" : "";
-                kids.push(
-                    el("div", { class: "mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400" },
-                        el("span", { text: "Más sesiones:" }),
-                        ...topUsers.map(([u, n]) => el("button", { class: "rounded-full bg-white/5 px-3 py-1 text-slate-200 ring-1 ring-white/10 hover:bg-indigo-500/30",
-                            text: `${u} · ${n}`, onclick: () => { inact.q = u === "—" ? "" : u; renderInactive(); } }))),
-                    el("div", { class: "mt-3 flex flex-wrap items-center gap-3" }, search,
-                        el("span", { class: "text-xs text-slate-400", text: `${rows.length} de ${all.length}${trunc} · tomado ${inact.data.taken_at || ""}` }),
-                        el("button", { class: "rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-200 ring-1 ring-white/10 hover:bg-white/10", text: "↻ Actualizar", onclick: loadInactive }),
-                        el("button", { class: "rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-200 ring-1 ring-white/10 hover:bg-white/10", text: "⬇ CSV",
-                            onclick: () => { const a = el("a", { href: URL.createObjectURL(new Blob(["\ufeff" + csv(rows)], { type: "text/csv" })), download: "sesiones_inactivas.csv" }); a.click(); } })),
-                    el("div", { class: "mt-3 max-h-[28rem] overflow-auto rounded-xl ring-1 ring-white/10" }, el("table", { class: "w-full text-left text-sm" },
-                        el("thead", { class: "sticky top-0 bg-slate-900" }, el("tr", { class: "text-xs uppercase tracking-wider text-slate-400" },
-                            cols.map(([k, h]) => el("th", { class: "cursor-pointer select-none px-3 py-2 font-medium hover:text-slate-100",
-                                text: h + (inact.sort === k ? (inact.dir < 0 ? " ▼" : " ▲") : ""),
-                                onclick: () => { inact.dir = inact.sort === k ? -inact.dir : -1; inact.sort = k; renderInactive(); } })))),
-                        el("tbody", { class: "divide-y divide-white/5" }, rows.slice(0, 150).map((r) => el("tr", { class: "hover:bg-white/5" },
-                            cols.map(([k]) => el("td", { class: "px-3 py-1.5 text-slate-200", text: k === "inactiva_s" ? fmtSeconds(r[k]) : (r[k] ?? "—") }))))))));
-            }
-        }
-        box.replaceChildren(...kids);
-    }
-
     function blockersTable() {
         const blo = (current?.findings || []).find((f) => f.area === "Bloqueos");
         const rows = blo?.details || [];
@@ -318,12 +268,11 @@ const SessionsDash = (() => {
                 stat("Bloqueantes", "🔒", last.blockers, "", last.blockers ? "warn" : "ok", "blockers", "Raíz de los bloqueos"),
                 stat("Espera máxima", "⏱️", last.wait, "s", level(last.wait, T.wait), "wait", `Aviso ${T.wait.warn} s · crítico ${T.wait.crit} s`)),
             el("div", { id: "sessions-charts", class: "grid grid-cols-1 gap-4" }),
-            el("section", { id: "sessions-inactive", class: PANEL }),
+            inactiveLink(),
             blockersTable(),
             el("p", { class: "text-xs text-slate-500", text: `${points.length} muestras · última revisión ${fmtDate(new Date(last.t).toISOString())} · ` +
                 "se actualiza sola con cada revisión (caché de Oracle)" }));
         renderCharts();
-        renderInactive();
     }
 
     async function update(check) {
