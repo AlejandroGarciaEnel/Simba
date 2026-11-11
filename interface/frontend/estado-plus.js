@@ -132,8 +132,41 @@ const EstadoPlus = (() => {
             el("div", { class: "tl-bars" }, bars));
     }
 
+    const CAPTION = { CPU: "media", Bloqueos: "bloqueadas", Conexiones: "uso", Espacio: "tablespaces",
+        Sesiones: "sesiones", Errores: "ORA distintos", Esperas: "sesiones", "Operaciones largas": "operaciones" };
+
+    // Último valor medido del área, en grande, junto a su gráfica.
+    function metric(area) {
+        const v = hist.at(-1)?.areas[area]?.value;
+        if (v == null) return null;
+        return el("span", { class: "row-metric", title: "Valor de la última revisión" },
+            el("b", { text: `${Math.round(v)}${UNIT[area] || ""}` }),
+            el("small", { text: CAPTION[area] || "" }));
+    }
+
+    // Anillo segmentado: reparto de las áreas por severidad; el centro indica cuántas están sin incidencias.
+    function ring(counts, total) {
+        const R = 40, C = 2 * Math.PI * R, GAP = total > 1 ? 3 : 0;
+        const root = svg("svg", { viewBox: "0 0 100 100", class: "hring-svg" });
+        root.append(svg("circle", { cx: 50, cy: 50, r: R, class: "hring-bg" }));
+        let off = 0;
+        for (const s of ["CRITICAL", "WARNING", "INFO", "OK"]) {
+            if (!counts[s]) continue;
+            const len = (C * counts[s]) / total;
+            root.append(svg("circle", {
+                cx: 50, cy: 50, r: R, class: `hring-seg hring-${CLS[s]}`,
+                "stroke-dasharray": `${Math.max(len - GAP, 0.5).toFixed(1)} ${C.toFixed(1)}`,
+                "stroke-dashoffset": (-off).toFixed(1), transform: "rotate(-90 50 50)",
+            }, ));
+            off += len;
+        }
+        const calm = counts.OK + counts.INFO;
+        return el("div", { class: "hring", title: `${calm} de ${total} áreas sin incidencias` },
+            root, el("div", { class: "hring-c" }, el("b", { text: `${calm}/${total}` }), el("small", { text: "sin incidencias" })));
+    }
+
     const getFilter = () => filter;
     const setFilter = (f) => { filter = filter === f ? null : f; return filter; };
 
-    return { seed, add, sparkline, trendBadge, timeline, getFilter, setFilter, LABEL };
+    return { seed, add, metric, ring, sparkline, trendBadge, timeline, getFilter, setFilter, LABEL };
 })();

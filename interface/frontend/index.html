@@ -79,6 +79,7 @@
                                 <div id="hero-timeline"></div>
                             </div>
                         </div>
+                        <div class="hero-ring" id="hero-ring" aria-hidden="true"></div>
                         <div class="status-actions">
                             <button class="btn" id="refresh-btn" title="Muestra la última revisión; solo consulta Oracle si ha caducado">↻ Actualizar</button>
                             <button class="btn btn-primary" id="force-btn" data-min-role="dba"
@@ -92,7 +93,7 @@
                     <h3 class="section-title" id="attn-title" hidden>Requiere atención</h3>
                     <div class="rows" id="area-cards"></div>
                     <h3 class="section-title section-toggle" id="ok-title" hidden role="button" tabindex="0"></h3>
-                    <div class="rows" id="ok-cards"></div>
+                    <div class="rows rows-ok" id="ok-cards"></div>
                     <p class="foot-note">Los hallazgos son indicios, no causas confirmadas; las recomendaciones son sugerencias que debe verificar el equipo funcional.</p>
 
                     <details class="panel" id="detail-panel" data-min-role="dba">

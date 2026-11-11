@@ -360,6 +360,12 @@ function renderHealth() {
         state.histSeeded = true;
         EstadoPlus.seed().then((ok) => { if (ok && state.check === c) renderHealth(); });
     }
+    if (!state.estadoEntered) {
+        state.estadoEntered = true;
+        const v = $("view-estado");
+        v.classList.add("enter");
+        setTimeout(() => v.classList.remove("enter"), 1200);
+    }
     const openAreas = new Set([...document.querySelectorAll("#view-estado details.row[open]")].map((d) => d.dataset.area));
     const areas = groupByArea(c.findings || []);
     const toReview = areas.filter((a) => SEV[a.severity].order >= 2).length;
@@ -374,6 +380,9 @@ function renderHealth() {
     $("hero-timeline").replaceChildren(...[EstadoPlus.timeline()].filter(Boolean));
 
     const heroCls = SEV[c.overall]?.cls || "ok";
+    const ringCounts = { OK: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
+    areas.forEach((a) => { ringCounts[a.severity] += 1; });
+    $("hero-ring").replaceChildren(...(areas.length ? [EstadoPlus.ring(ringCounts, areas.length)] : []));
     $("status-hero").className = `status-hero hero-${heroCls}`;
     $("hero-icon").textContent = { ok: "✓", info: "i", warn: "!", crit: "✕" }[heroCls];
 
@@ -407,7 +416,8 @@ function renderHealth() {
     const okOpen = ui.okOpen || filter === "ok";
     $("attn-title").hidden = !attention.length;
     $("ok-title").hidden = !fine.length;
-    $("ok-title").textContent = `${okOpen ? "▾" : "▸"} Todo en orden (${fine.length})`;
+    $("ok-title").replaceChildren(el("span", { class: "chev", text: okOpen ? "▾" : "▸" }), "Todo en orden", el("span", { class: "count-badge", text: fine.length }));
+    $("attn-title").replaceChildren("Requiere atención", el("span", { class: "count-badge", text: attention.length }));
     $("ok-title").setAttribute("aria-expanded", String(okOpen));
     $("ok-cards").hidden = !okOpen || !fine.length;
     $("area-cards").replaceChildren(...attention.map(renderAreaCard));
@@ -466,9 +476,10 @@ function renderAreaCard({ area, items, severity }) {
     const brief = cpuNodes ? cpuNodes.message.replace(/^CPU:\s*/, "") : shown[0].message;
     return el("details", { class: `row row-${cls}`, "data-area": area, ontoggle: onRowToggle },
         el("summary", {},
-            el("span", { class: "area-icon", text: AREA_ICON[area] || "•" }),
+            el("span", { class: `area-icon ico-${cls}`, text: AREA_ICON[area] || "•" }),
             el("strong", { class: "row-title", text: area }),
             el("span", { class: "row-brief", text: brief + extra }),
+            EstadoPlus.metric(area),
             EstadoPlus.sparkline(area, cls),
             EstadoPlus.trendBadge(area),
             sevPill(severity),
