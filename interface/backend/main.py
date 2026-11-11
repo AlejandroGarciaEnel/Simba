@@ -2,6 +2,7 @@
 Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
+import asyncio
 import os
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response, UploadFile, File, Request, Depends
 from fastapi.concurrency import run_in_threadpool
@@ -420,6 +421,7 @@ async def inactive_sessions(_: Dict[str, str] = Depends(as_dba)):
 
 
 _blocking_cache: Dict[str, Any] = {"at": 0.0}
+_blocking_lock = asyncio.Lock()
 BLOCKING_TTL_S = 15
 
 
@@ -430,19 +432,27 @@ async def blocking_sessions(_: Dict[str, str] = Depends(as_dba)):
 
     from db import queries
 
-    if time.monotonic() - _blocking_cache["at"] > BLOCKING_TTL_S:
-        def work():
-            roots = queries.get_root_blockers(50)
-            waiting = queries.get_blocked_session_list()
-            return ([{k.lower(): v for k, v in r.items()} for r in roots],
-                    [{k.lower(): v for k, v in r.items()} for r in waiting])
-        try:
-            roots, waiting = await run_in_threadpool(work)
-        except Exception:
-            logger.exception("Error al listar sesiones bloqueantes")
-            raise HTTPException(status_code=500, detail="No se pudo obtener el detalle de bloqueos.")
-        _blocking_cache.update(at=time.monotonic(), roots=roots, waiting=waiting,
-                               taken=datetime.now().isoformat(timespec="seconds"))
+    def work():
+        roots = queries.get_root_blockers(50)
+        waiting = queries.get_blocked_session_list()
+        names = queries.get_object_names([w.get("OBJ_ID") for w in waiting])
+        texts = queries.get_sql_texts([w.get("SQL_ID") for w in waiting])
+        for w in waiting:
+            w["SQL_TEXTO"] = texts.get(w.get("SQL_ID"))
+            w["OBJETO"] = names.get(int(w["OBJ_ID"])) if w.get("OBJ_ID") else None
+        return ([{k.lower(): v for k, v in r.items()} for r in roots],
+                [{k.lower(): v for k, v in r.items()} for r in waiting])
+
+    # El lock evita que varias pestañas lancen la misma consulta a la vez.
+    async with _blocking_lock:
+        if time.monotonic() - _blocking_cache["at"] > BLOCKING_TTL_S:
+            try:
+                roots, waiting = await run_in_threadpool(work)
+            except Exception:
+                logger.exception("Error al listar sesiones bloqueantes")
+                raise HTTPException(status_code=500, detail="No se pudo obtener el detalle de bloqueos.")
+            _blocking_cache.update(at=time.monotonic(), roots=roots, waiting=waiting,
+                                   taken=datetime.now().isoformat(timespec="seconds"))
     return {"roots": _blocking_cache["roots"], "waiting": _blocking_cache["waiting"], "taken_at": _blocking_cache.get("taken")}
 
 

@@ -228,10 +228,49 @@ const SessionsDash = (() => {
                 : el("span", { class: "ml-auto text-xs text-slate-500", text: "Requiere rol dba" }));
     }
     let blocking = null;
+    const openRoots = new Map(); // clave de raíz -> abierta (se conserva entre refrescos)
+    const shown = new Map(); // clave de raíz -> víctimas visibles
+    let rootsShown = 5;
+    const VICTIMS_STEP = 10, ROOTS_STEP = 5;
+
+    function topCounts(list, fn, n = 3) {
+        const m = new Map();
+        list.forEach((x) => { const k = fn(x); if (k) m.set(k, (m.get(k) || 0) + 1); });
+        return [...m].sort((a, b) => b[1] - a[1]).slice(0, n);
+    }
+
+    function victimsTable(r, victims, k) {
+        const limit = shown.get(k) || VICTIMS_STEP;
+        const rows = victims.slice(0, limit);
+        const wrap = el("div", { class: "overflow-x-auto px-4 pb-4" });
+        const sum = topCounts(victims, (v) => v.evento).concat(topCounts(victims, (v) => v.sql_id && `SQL ${v.sql_id}`));
+        if (victims.length > VICTIMS_STEP) {
+            wrap.append(el("div", { class: "mb-2 flex flex-wrap gap-1 text-xs text-slate-400" }, el("span", { text: "Resumen:" }),
+                sum.map(([t, n]) => el("span", { class: "rounded-full bg-white/10 px-2 py-0.5 text-slate-200", text: `${t} × ${n}` }))));
+        }
+        wrap.append(el("table", { class: "w-full text-left text-xs" },
+            el("thead", {}, el("tr", { class: "uppercase tracking-wider text-slate-500" },
+                ["Sesión bloqueada", "Usuario", "Origen", "Espera", "Evento", "Vía", "SQL"].map((h) => el("th", { class: "px-2 py-1 font-medium", text: h })))),
+            el("tbody", { class: "divide-y divide-white/5" }, rows.map((v) => el("tr", { class: "text-slate-200" },
+                el("td", { class: "px-2 py-1 font-mono", text: `inst ${v.instancia} · ${v.sid},${v.serial}` }),
+                el("td", { class: "px-2 py-1", text: v.usuario || "—" }),
+                el("td", { class: "px-2 py-1", text: [v.maquina, v.programa].filter(Boolean).join(" · ") }),
+                el("td", { class: `px-2 py-1 ${TONE[level(v.segundos_espera, T.wait)].text}`, text: fmtSeconds(v.segundos_espera) }),
+                el("td", { class: "px-2 py-1", text: v.evento || "" }),
+                el("td", { class: "px-2 py-1", text: v.sid_bloqueante === r.sid && v.inst_bloqueante === r.instancia ? "directo" : `SID ${v.sid_bloqueante}` }),
+                el("td", { class: "max-w-xs truncate px-2 py-1 font-mono", title: v.sql_texto || "", text: v.sql_id ? `${v.sql_id} ${v.sql_texto || ""}` : "—" }))))));
+        if (victims.length > limit) {
+            wrap.append(el("button", { class: "mt-2 rounded-lg bg-white/10 px-3 py-1 text-xs text-slate-200 hover:bg-white/20",
+                text: `Mostrar ${Math.min(VICTIMS_STEP, victims.length - limit)} más (${victims.length - limit} ocultas)`,
+                onclick: () => { shown.set(k, limit + VICTIMS_STEP); render(); } }));
+        }
+        return wrap;
+    }
 
     function chainsPanel() {
-        const box = el("section", { class: PANEL }, el("div", { class: "mb-3 flex items-center justify-between" },
-            el("h4", { class: "text-sm font-medium text-slate-200", text: "🔗 Cadenas de bloqueo · quién bloquea a quién" }),
+        const total = blocking.waiting.length;
+        const box = el("section", { class: PANEL }, el("div", { class: "mb-3 flex flex-wrap items-center justify-between gap-2" },
+            el("h4", { class: "text-sm font-medium text-slate-200", text: `🔗 Cadenas de bloqueo · ${blocking.roots.length} bloqueante(s), ${total} bloqueada(s)` }),
             el("span", { class: "text-xs text-slate-500", text: `Actualizado ${blocking.taken_at ? blocking.taken_at.slice(11) : ""}` })));
         const key = (i, sid) => `${i}:${sid}`;
         const byRoot = new Map();
@@ -240,10 +279,13 @@ const SessionsDash = (() => {
             (byRoot.get(k) || byRoot.set(k, []).get(k)).push(w);
         });
         const chip = (t, cls = "bg-white/10 text-slate-200") => el("span", { class: `rounded-full px-2 py-0.5 text-xs ${cls}`, text: t });
-        blocking.roots.forEach((r) => {
-            const victims = byRoot.get(key(r.instancia, r.sid)) || [];
+        const roots = [...blocking.roots].sort((a, b) => b.sesiones_bloqueadas - a.sesiones_bloqueadas || b.segundos_espera - a.segundos_espera);
+        roots.slice(0, rootsShown).forEach((r, idx) => {
+            const k = key(r.instancia, r.sid);
+            const victims = (byRoot.get(k) || []).sort((a, b) => b.segundos_espera - a.segundos_espera);
             const sev = level(r.segundos_espera, T.wait);
-            const card = el("details", { class: "group mb-3 rounded-xl bg-slate-950/50 ring-1 ring-white/10", open: victims.length <= 8 },
+            const isOpen = openRoots.has(k) ? openRoots.get(k) : (idx === 0 && roots.length > 1) || (roots.length === 1 && victims.length <= 20);
+            const card = el("details", { class: "mb-3 rounded-xl bg-slate-950/50 ring-1 ring-white/10", open: isOpen },
                 el("summary", { class: "flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3" },
                     el("span", { class: `text-lg ${TONE[sev].text}`, text: "🔒" }),
                     el("b", { class: "text-slate-100", text: `${r.usuario || "?"} · inst ${r.instancia} · SID ${r.sid},${r.serial}` }),
@@ -254,19 +296,15 @@ const SessionsDash = (() => {
                 el("div", { class: "grid gap-1 px-4 pb-3 text-xs text-slate-400" },
                     el("div", { text: `Origen: ${[r.maquina, r.programa, r.modulo].filter(Boolean).join(" · ") || "—"}` }),
                     r.sql_id ? el("div", { class: "font-mono", text: `SQL ${r.sql_id} (${r.tipo_sql}): ${r.sql_texto || "—"}` }) : null),
-                victims.length ? el("div", { class: "overflow-x-auto px-4 pb-4" }, el("table", { class: "w-full text-left text-xs" },
-                    el("thead", {}, el("tr", { class: "uppercase tracking-wider text-slate-500" },
-                        ["Sesión bloqueada", "Usuario", "Origen", "Espera", "Evento", "Vía", "SQL"].map((h) => el("th", { class: "px-2 py-1 font-medium", text: h })))),
-                    el("tbody", { class: "divide-y divide-white/5" }, victims.map((v) => el("tr", { class: "text-slate-200" },
-                        el("td", { class: "px-2 py-1 font-mono", text: `inst ${v.instancia} · ${v.sid},${v.serial}` }),
-                        el("td", { class: "px-2 py-1", text: v.usuario || "—" }),
-                        el("td", { class: "px-2 py-1", text: [v.maquina, v.programa].filter(Boolean).join(" · ") }),
-                        el("td", { class: `px-2 py-1 ${TONE[level(v.segundos_espera, T.wait)].text}`, text: fmtSeconds(v.segundos_espera) }),
-                        el("td", { class: "px-2 py-1", text: v.evento || "" }),
-                        el("td", { class: "px-2 py-1", text: v.sid_bloqueante === r.sid && v.inst_bloqueante === r.instancia ? "directo" : `SID ${v.sid_bloqueante}` }),
-                        el("td", { class: "max-w-xs truncate px-2 py-1 font-mono", title: v.sql_texto || "", text: v.sql_id ? `${v.sql_id} ${v.sql_texto || ""}` : "—" })))))) : null);
+                victims.length ? victimsTable(r, victims, k) : null);
+            card.addEventListener("toggle", () => openRoots.set(k, card.open));
             box.append(card);
         });
+        if (roots.length > rootsShown) {
+            box.append(el("button", { class: "rounded-lg bg-white/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/20",
+                text: `Mostrar ${Math.min(ROOTS_STEP, roots.length - rootsShown)} bloqueantes más (${roots.length - rootsShown} ocultos)`,
+                onclick: () => { rootsShown += ROOTS_STEP; render(); } }));
+        }
         return box;
     }
 

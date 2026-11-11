@@ -974,18 +974,36 @@ def get_blocked_session_list(limit: int = 300) -> list[dict[str, Any]]:
             w.username AS usuario, w.machine AS maquina, w.program AS programa, w.module AS modulo,
             w.event AS evento, w.seconds_in_wait AS segundos_espera,
             NVL(w.sql_id, w.prev_sql_id) AS sql_id,
-            (SELECT SUBSTR(s.sql_text, 1, 200) FROM gv$sql s
-              WHERE s.inst_id = w.inst_id AND s.sql_id = NVL(w.sql_id, w.prev_sql_id) AND ROWNUM = 1) AS sql_texto,
             w.blocking_instance AS inst_bloqueante, w.blocking_session AS sid_bloqueante,
             w.final_blocking_instance AS inst_raiz, w.final_blocking_session AS sid_raiz,
-            o.owner || '.' || o.object_name AS objeto
+            w.row_wait_obj# AS obj_id
         FROM gv$session w
-        LEFT JOIN dba_objects o ON o.object_id = w.row_wait_obj#
         WHERE w.blocking_session IS NOT NULL
         ORDER BY w.seconds_in_wait DESC
         FETCH FIRST :limit ROWS ONLY
     """
     return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_object_names(object_ids: list[int]) -> dict[int, str]:
+    """Nombres OWNER.OBJETO de unos pocos object_id (consulta acotada en lugar de un join sobre dba_objects)."""
+    ids = sorted({int(i) for i in object_ids if i is not None and int(i) > 0})[:100]
+    if not ids:
+        return {}
+    binds = {f"o{n}": v for n, v in enumerate(ids)}
+    sql = f"SELECT object_id, owner || '.' || object_name AS nombre FROM dba_objects WHERE object_id IN ({', '.join(':' + k for k in binds)})"
+    return {int(r["OBJECT_ID"]): r["NOMBRE"] for r in _fetchall_as_dicts(sql, binds)}
+
+
+def get_sql_texts(sql_ids: list[str]) -> dict[str, str]:
+    """Texto (200 primeros caracteres) de unos pocos SQL_ID, en una sola consulta sobre gv$sqlarea."""
+    ids = sorted({i for i in sql_ids if i})[:40]
+    if not ids:
+        return {}
+    binds = {f"s{n}": v for n, v in enumerate(ids)}
+    sql = ("SELECT sql_id, MAX(SUBSTR(sql_text, 1, 200)) AS texto FROM gv$sqlarea "
+           f"WHERE sql_id IN ({', '.join(':' + k for k in binds)}) GROUP BY sql_id")
+    return {r["SQL_ID"]: r["TEXTO"] for r in _fetchall_as_dicts(sql, binds)}
 
 
 def get_root_blockers(limit: int = 10) -> list[dict[str, Any]]:
