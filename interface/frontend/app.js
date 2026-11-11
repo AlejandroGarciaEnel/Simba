@@ -154,28 +154,76 @@ function showApp() {
     pollConnection();
 }
 
-let connTimer = null;
-async function pollConnection() {
-    clearInterval(connTimer);
-    const update = async () => {
-        if (!state.user) return;
-        try {
-            const h = await api("/health");
-            const ok = h.db_connected && h.llm_ready;
-            $("conn-dot").className = `dot ${ok ? "dot-ok" : h.db_connected ? "dot-warn" : "dot-crit"}`;
-            $("conn-text").textContent = ok ? "BD y asistente conectados"
-                : h.db_connected ? "BD conectada · asistente no disponible" : "BD no conectada";
-        } catch {
-            $("conn-dot").className = "dot dot-crit";
-            $("conn-text").textContent = "Servidor no disponible";
-        }
-    };
-    await update();
-    connTimer = setInterval(update, 60000);
+// ========== Actualización en vivo ==========
+// Un único temporizador de 5 s ejecuta las tareas vencidas. Se pausa con la pestaña oculta,
+// reintenta con backoff si falla y la revisión de salud usa la caché del servidor (sin force).
+const LIVE = {
+    conn: { every: 15000, run: () => refreshConnection(), views: null },
+    health: { every: 60000, run: () => loadHealth(false, true), views: ["estado"] },
+    queries: { every: 300000, run: () => loadQueries(true), views: ["queries"] },
+};
+const live = { timer: null, view: "estado", last: {}, fails: {}, busy: {}, connOk: null, updatedAt: null };
+
+function pollConnection() {
+    clearInterval(live.timer);
+    live.last = { health: Date.now(), queries: Date.now() }; live.fails = {};
+    liveTick();
+    live.timer = setInterval(liveTick, 5000);
 }
+
+async function liveTick() {
+    if (!state.user || document.hidden) return;
+    const now = Date.now();
+    for (const [name, t] of Object.entries(LIVE)) {
+        if (live.busy[name] || (t.views && !t.views.includes(live.view))) continue;
+        const wait = t.every * Math.min(2 ** (live.fails[name] || 0), 4);
+        if (now - (live.last[name] || 0) < wait) continue;
+        live.busy[name] = true;
+        live.last[name] = now;
+        try {
+            await t.run();
+            live.fails[name] = 0;
+        } catch {
+            live.fails[name] = (live.fails[name] || 0) + 1;
+        } finally {
+            live.busy[name] = false;
+        }
+    }
+    renderLiveStamp();
+}
+
+function resetLive(name) { live.last[name] = Date.now(); live.fails[name] = 0; }
+
+async function refreshConnection() {
+    try {
+        const h = await api("/health");
+        const ok = h.db_connected && h.llm_ready;
+        $("conn-dot").className = `dot ${ok ? "dot-ok" : h.db_connected ? "dot-warn" : "dot-crit"}`;
+        live.connText = ok ? "BD y asistente conectados"
+            : h.db_connected ? "BD conectada · asistente no disponible" : "BD no conectada";
+        live.updatedAt = Date.now();
+        renderLiveStamp();
+    } catch (err) {
+        $("conn-dot").className = "dot dot-crit";
+        live.connText = "Servidor no disponible · reintentando";
+        renderLiveStamp();
+        throw err;
+    }
+}
+
+function renderLiveStamp() {
+    if (!live.connText) return;
+    const t = live.updatedAt ? new Date(live.updatedAt).toLocaleTimeString("es-ES") : "—";
+    $("conn-text").textContent = `${live.connText} · en vivo ${t}`;
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && state.user) { live.last = {}; liveTick(); }
+});
 
 // ========== Navegación ==========
 function switchView(view) {
+    live.view = view;
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
     document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
     if (view === "historico") loadHistory();
@@ -184,19 +232,28 @@ function switchView(view) {
 }
 
 // ========== Estado ==========
-async function loadHealth(force) {
+async function loadHealth(force, silent = false) {
     const buttons = [$("refresh-btn"), $("force-btn")];
-    buttons.forEach((b) => { b.disabled = true; });
-    $("overall-title").textContent = force ? "Ejecutando revisión en Oracle…" : "Cargando revisión…";
+    if (!silent) {
+        buttons.forEach((b) => { b.disabled = true; });
+        $("overall-title").textContent = force ? "Ejecutando revisión en Oracle…" : "Cargando revisión…";
+        resetLive("health");
+    }
+    live.busy.health = true;
     try {
-        state.check = await api(`/health-check${force ? "?force=true" : ""}`, { method: "POST" });
-        renderHealth();
+        const check = await api(`/health-check${force ? "?force=true" : ""}`, { method: "POST" });
+        const unchanged = silent && state.check && state.check.id === check.id && state.check.created_at === check.created_at;
+        state.check = check;
+        if (!unchanged) renderHealth();
+        else $("overall-meta").textContent = $("overall-meta").textContent.replace(/\(hace [^)]*\)/, `(${ago(check.created_at)})`);
         if (force) toast("Revisión nueva completada");
     } catch (err) {
+        if (silent) throw err;
         $("overall-title").textContent = "No se pudo obtener la revisión";
         $("overall-meta").textContent = err.message;
     } finally {
-        buttons.forEach((b) => { b.disabled = false; });
+        live.busy.health = false;
+        if (!silent) buttons.forEach((b) => { b.disabled = false; });
     }
 }
 
@@ -370,12 +427,18 @@ let queriesData = null;
 let queriesMode = "tablero";
 let listSort = { key: "cpu_h", dir: -1 };
 
-async function loadQueries() {
-    $("queries-body").replaceChildren(el("p", { class: "muted", text: "Leyendo informes…" }));
+async function loadQueries(silent = false) {
+    if (!silent) {
+        $("queries-body").replaceChildren(el("p", { class: "muted", text: "Leyendo informes…" }));
+        resetLive("queries");
+    }
     try {
-        queriesData = await api("/query-improvements");
-        renderQueries();
+        const data = await api("/query-improvements");
+        const changed = JSON.stringify(data) !== JSON.stringify(queriesData);
+        queriesData = data;
+        if (!silent || changed) renderQueries();
     } catch (err) {
+        if (silent) throw err;
         $("queries-body").replaceChildren(el("p", { class: "form-error", text: err.message }));
     }
 }
