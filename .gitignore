@@ -27,3 +27,6 @@ env/
 
 # Copilot Starter Kit
 .github/node_modules/
+
+# Dependencias de Node (npm run build:css / npm test)
+node_modules/
