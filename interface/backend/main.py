@@ -4,10 +4,11 @@ Interfaz de comunicación entre frontend y agente LangChain.
 """
 import asyncio
 import hmac
+import json
 import os
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response, UploadFile, File, Request, Depends
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -327,6 +328,10 @@ async def delete_user(username: str, admin: Dict[str, str] = Depends(as_admin)):
 @app.get("/api/health", response_model=HealthResponse)
 async def health_check(_: Dict[str, str] = Depends(as_consulta)):
     """Verifica el estado del servidor, la conexión a BD y el agente LLM por separado."""
+    return _health_payload()
+
+
+def _health_payload() -> Dict[str, Any]:
     return {
         "status": "ok",
         "db_connected": chat_handler.db_connected,
@@ -335,6 +340,43 @@ async def health_check(_: Dict[str, str] = Depends(as_consulta)):
         "llm_error": chat_handler.llm_error,
         "message": "Servidor activo" if initialization_done else "Inicializando..."
     }
+
+
+# Server-Sent Events: estado de conexión y avisos sin que el navegador tenga que preguntar.
+# El flujo se cierra cada SSE_MAX_SECONDS; EventSource reconecta solo y así se revalida la sesión.
+SSE_INTERVAL = float(os.getenv("SIMBA_SSE_INTERVAL", "15"))
+SSE_MAX_SECONDS = float(os.getenv("SIMBA_SSE_MAX_SECONDS", "300"))
+
+
+def _sse(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str, ensure_ascii=False)}\n\n"
+
+
+@app.get("/api/events", include_in_schema=False)
+async def live_events(request: Request, user: Dict[str, str] = Depends(as_consulta)):
+    from query_reports import board_store
+
+    async def stream():
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + SSE_MAX_SECONDS
+        last_notifs = None
+        yield "retry: 5000\n\n"
+        while loop.time() < deadline and not await request.is_disconnected():
+            try:
+                current_user(request)
+            except HTTPException:
+                yield _sse("logout", {})
+                return
+            yield _sse("status", _health_payload())
+            notifs = await run_in_threadpool(board_store.notifications_for, user["username"])
+            encoded = json.dumps(notifs, default=str, sort_keys=True)
+            if encoded != last_notifs:
+                last_notifs = encoded
+                yield _sse("notifications", notifs)
+            await asyncio.sleep(SSE_INTERVAL)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/chat")

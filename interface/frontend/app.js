@@ -155,6 +155,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function showLogin() {
     state.user = null;
+    closeLiveEvents();
     $("app-view").hidden = true;
     $("login-view").hidden = false;
     $("login-password").value = "";
@@ -211,10 +212,31 @@ const LIVE = {
     notifs: { every: 30000, run: () => loadNotifications(), views: null },
     queries: { every: 300000, run: () => loadQueries(true), views: ["queries"] },
 };
-const live = { timer: null, view: "estado", last: {}, fails: {}, busy: {}, connOk: null, updatedAt: null };
+const live = { timer: null, view: "estado", last: {}, fails: {}, busy: {}, connOk: null, updatedAt: null, es: null, sse: false };
+// Mientras el flujo SSE está abierto, conexión y avisos llegan por /api/events y no se sondean.
+const SSE_TASKS = new Set(["conn", "notifs"]);
+
+function openLiveEvents() {
+    closeLiveEvents();
+    if (!window.EventSource) return;
+    const es = new EventSource(API + "/events");
+    live.es = es;
+    es.onopen = () => { live.sse = true; };
+    es.onerror = () => { live.sse = false; };
+    es.addEventListener("status", (e) => applyHealth(JSON.parse(e.data)));
+    es.addEventListener("notifications", (e) => applyNotifications(JSON.parse(e.data)));
+    es.addEventListener("logout", () => { closeLiveEvents(); showLogin(); });
+}
+
+function closeLiveEvents() {
+    live.es?.close();
+    live.es = null;
+    live.sse = false;
+}
 
 function pollConnection() {
     clearInterval(live.timer);
+    openLiveEvents();
     live.last = { health: Date.now(), queries: Date.now() }; live.fails = {};
     liveTick();
     live.timer = setInterval(liveTick, 5000);
@@ -225,6 +247,7 @@ async function liveTick() {
     const now = Date.now();
     for (const [name, t] of Object.entries(LIVE)) {
         if (live.busy[name] || (t.views && !t.views.includes(live.view))) continue;
+        if (live.sse && SSE_TASKS.has(name)) continue;
         const wait = t.every * Math.min(2 ** (live.fails[name] || 0), 4);
         if (now - (live.last[name] || 0) < wait) continue;
         live.busy[name] = true;
@@ -251,7 +274,10 @@ const NOTIF_TEXT = {
 const notif = { items: [], unread: 0 };
 
 async function loadNotifications() {
-    const data = await api("/notifications");
+    await applyNotifications(await api("/notifications"));
+}
+
+async function applyNotifications(data) {
     const grew = data.unread > notif.unread;
     notif.items = data.items;
     notif.unread = data.unread;
@@ -308,19 +334,22 @@ function resetLive(name) { live.last[name] = Date.now(); live.fails[name] = 0; }
 
 async function refreshConnection() {
     try {
-        const h = await api("/health");
-        const ok = h.db_connected && h.llm_ready;
-        $("conn-dot").className = `dot ${ok ? "dot-ok" : h.db_connected ? "dot-warn" : "dot-crit"}`;
-        live.connText = ok ? "BD y asistente conectados"
-            : h.db_connected ? "BD conectada · asistente no disponible" : "BD no conectada";
-        live.updatedAt = Date.now();
-        renderLiveStamp();
+        applyHealth(await api("/health"));
     } catch (err) {
         $("conn-dot").className = "dot dot-crit";
         live.connText = "Servidor no disponible · reintentando";
         renderLiveStamp();
         throw err;
     }
+}
+
+function applyHealth(h) {
+    const ok = h.db_connected && h.llm_ready;
+    $("conn-dot").className = `dot ${ok ? "dot-ok" : h.db_connected ? "dot-warn" : "dot-crit"}`;
+    live.connText = ok ? "BD y asistente conectados"
+        : h.db_connected ? "BD conectada · asistente no disponible" : "BD no conectada";
+    live.updatedAt = Date.now();
+    renderLiveStamp();
 }
 
 function renderLiveStamp() {
