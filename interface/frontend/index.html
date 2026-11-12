@@ -25,6 +25,8 @@
         <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 0 1-12.3 7.6L3.5 21l1.4-4.6A8.5 8.5 0 1 1 20.5 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01" stroke-width="2.6"/></symbol>
         <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></symbol>
         <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9.5a6 6 0 0 1 12 0c0 5.5 2.5 7 2.5 7h-17S6 15 6 9.5zM10 20a2.2 2.2 0 0 0 4 0"/></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-3 3.8M14.1 14.1A3 3 0 0 1 9.9 9.9M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1.1"/></symbol>
         <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z"/></symbol>
         <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
         <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9.5 4H6.5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M15 8l4 4-4 4M19 12H9.5"/></symbol>
@@ -114,6 +116,7 @@
                 <button class="tab" data-view="usuarios" data-min-role="administrador"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-usuarios"/></svg><span>Usuarios</span></button>
             </nav>
             <div class="topbar-right">
+                <span class="present-badge" id="present-badge" hidden title="Los nombres, esquemas, máquinas y el texto SQL se muestran con seudónimos"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg>Modo presentación</span>
                 <span class="conn" id="conn" title="Estado de la conexión">
                     <span class="dot" id="conn-dot"></span><span id="conn-text">Comprobando…</span>
                 </span>
@@ -131,6 +134,7 @@
                             <button class="icon-btn bell" id="bell-btn" title="Avisos sobre tus SQL" aria-label="Avisos" aria-haspopup="true" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="bell-badge" id="bell-badge" hidden>0</span></button>
                             <div class="bell-panel" id="bell-panel" hidden></div>
                         </div>
+                        <button class="icon-btn" id="present-btn" title="Activar modo presentación (oculta datos reales)" aria-label="Modo presentación" aria-pressed="false"><svg class="ico" aria-hidden="true"><use href="#i-eye"/></svg></button>
                         <button class="icon-btn" id="theme-btn" title="Cambiar tema" aria-label="Cambiar tema"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></button>
                         <button class="icon-btn" id="logout-btn" title="Cerrar sesión" aria-label="Cerrar sesión"><svg class="ico" aria-hidden="true"><use href="#i-logout"/></svg></button>
                     </div>
@@ -334,6 +338,7 @@
     <script src="sessions-dash.js"></script>
     <script src="estado-plus.js"></script>
     <script src="awr.js"></script>
+    <script src="js/present.js"></script>
     <script src="js/core.js"></script>
     <script src="js/live.js"></script>
     <script src="js/estado.js"></script>

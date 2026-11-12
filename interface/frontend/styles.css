@@ -254,6 +254,10 @@ select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
 .tab:focus-visible { box-shadow: 0 0 0 2px #8b8cf6; }
 
 .topbar-right { display: flex; align-items: center; gap: 8px; }
+.present-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fde68a; background: rgba(245, 158, 11, .16); border: 1px solid rgba(245, 158, 11, .45); }
+.present-badge[hidden] { display: none; }
+.present-badge .ico { width: 14px; height: 14px; }
+.topbar #present-btn[aria-pressed="true"] { color: #fbbf24; }
 .conn { display: inline-flex; align-items: center; gap: 8px; color: var(--side-muted); font-size: 12px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--side-muted); flex: none; }
 .dot-ok { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .18); }

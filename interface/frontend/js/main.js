@@ -9,12 +9,28 @@ function initTheme() {
     $("theme-btn").title = dark ? "Tema claro" : "Tema oscuro";
 }
 
+function initPresent() {
+    const on = Present.isOn();
+    document.body.classList.toggle("presenting", on);
+    $("present-badge").hidden = !on;
+    $("present-btn").setAttribute("aria-pressed", String(on));
+    $("present-btn").querySelector("use").setAttribute("href", on ? "#i-eye-off" : "#i-eye");
+    $("present-btn").title = on ? "Desactivar modo presentación (mostrar datos reales)" : "Activar modo presentación (oculta datos reales)";
+}
+
 function bindEvents() {
     $("login-form").addEventListener("submit", login);
     $("logout-btn").addEventListener("click", logout);
     $("theme-btn").addEventListener("click", () => {
         localStorage.setItem("darkMode", String(!document.body.classList.contains("dark")));
         initTheme();
+    });
+    $("present-btn").addEventListener("click", () => {
+        const on = !Present.isOn();
+        Present.setOn(on);
+        // el historial del asistente guardado en el navegador contiene datos reales
+        if (on) sessionStorage.removeItem("chatHistory");
+        location.reload();
     });
     $("tabs").addEventListener("click", (e) => {
         const tab = e.target.closest("[data-view]");

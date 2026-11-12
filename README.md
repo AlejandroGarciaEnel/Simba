@@ -198,6 +198,16 @@ planes, muchas lecturas por fila, exceso de ejecuciones, PL/SQL, batch pesado). 
 `query_reports/recommendations.json` para que el DBA los revise. Variables: `SIMBA_QUERY_REPORTS_DIR`
 (carpeta con `PRAGU4E_Informe_Semana_*.xlsx`) y `SIMBA_QUERY_TRACKING_FILE` (opcional, `PRAGU4E_Seguimiento.xlsx`).
 
+### Modo presentación
+
+El botón con el ojo (junto al tema, en la barra lateral) activa el *modo presentación* para enseñar SIMBA o
+hacer capturas sin datos reales. Todo ocurre en el navegador (`interface/frontend/js/present.js`), también en
+`/inactivas`: personas, usuarios, esquemas, usuarios de SO, máquinas, tablespaces y objetos se sustituyen por
+seudónimos estables (`Persona A`, `ESQUEMA_01`, `equipo-01`, `TS_DATOS_01`…), el texto SQL conserva su
+estructura pero oculta identificadores y literales, y las notas del seguimiento se ocultan. Los seudónimos se
+traducen de vuelta al hacer peticiones (filtros, descargas, preguntas al asistente); mientras está activo no
+se pueden guardar notas del tablero. Al activarlo se vacía el historial del asistente guardado en el navegador.
+
 ---
 
 ## 6. Estructura del proyecto

@@ -17,7 +17,7 @@ function loadFrontend() {
         window: {},
         navigator: {},
     });
-    for (const f of ["core", "queries", "history-users"]) vm.runInContext(read(`frontend/js/${f}.js`), ctx, { filename: `${f}.js` });
+    for (const f of ["present", "core", "queries", "history-users"]) vm.runInContext(read(`frontend/js/${f}.js`), ctx, { filename: `${f}.js` });
     ctx.el = (tag, props = {}) => ({ tag, ...props });  // highlightSql solo necesita la clase y el texto
     // Las const/let de nivel superior no cuelgan del objeto global: se exponen explícitamente.
     Object.assign(ctx, vm.runInContext("({ state, fmtNum, COMMON_PASSWORDS })", ctx));
@@ -87,4 +87,57 @@ test("api() envía X-CSRF-Token solo en peticiones que modifican", async () => {
     assert.equal(calls[0].headers["X-CSRF-Token"], undefined);
     assert.equal(calls[1].headers["X-CSRF-Token"], "tok");
     assert.equal(calls[1].headers["Content-Type"], "application/json");
+});
+
+function loadPresent(on = true) {
+    const mem = (init = {}) => { const m = new Map(Object.entries(init)); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) }; };
+    const ctx = vm.createContext({ sessionStorage: mem(), localStorage: mem({ presentMode: String(on) }) });
+    vm.runInContext(read("frontend/js/present.js"), ctx, { filename: "present.js" });
+    return vm.runInContext("Present", ctx);
+}
+
+test("modo presentación seudonimiza campos y también los textos libres", () => {
+    const P = loadPresent();
+    const out = P.mask({
+        board: [{ sql_id: "5j63dku49x6hf", persona: "Francisco Martin", esquema: "GCWEB", estado: "En curso",
+            mensaje: "5 semanas en el top (responsable: Francisco Martin).", notas: "PENDIENTE\n[04/09] Hablar con Simone" }],
+        sessions: [{ usuario: "ENET", maquina: "ENELINT\\eevzekespp-31", programa: "oracle@ENELINT\\eevzekespp-31 (PPA7)", TABLESPACE_NAME: "GEMAS_DATA" }],
+        detail: [{ objeto: "ENET.T_CHANGESET" }, { objeto: "SYS.I_OBJ5" }],
+        file: "PRAGU4E_Informe_Semana.xlsx", csrf: "ENET",
+    });
+    const [card] = out.board, [ses] = out.sessions;
+    assert.equal(card.sql_id, "5j63dku49x6hf");
+    assert.equal(card.persona, "Persona A");
+    assert.equal(card.esquema, "ESQUEMA_01");
+    assert.equal(card.mensaje, "5 semanas en el top (responsable: Persona A).");
+    assert.equal(card.notas, "PENDIENTE\n[04/09] Comentario de seguimiento (oculto en modo presentación)");
+    assert.equal(ses.usuario, "ESQUEMA_02");
+    assert.equal(ses.maquina, "equipo-01");
+    assert.equal(ses.programa, "oracle@equipo-01 (PPA7)");
+    assert.equal(ses.TABLESPACE_NAME, "TS_DATOS_01");
+    assert.equal(out.detail[0].objeto, "ESQUEMA_02.OBJETO_01");
+    assert.equal(out.detail[1].objeto, "SYS.I_OBJ5");
+    assert.equal(out.file, "DEMO_DB_Informe_Semana.xlsx");
+    assert.equal(out.csrf, "ENET");
+    assert.equal(P.maskText("12 tablespace(s) por encima del 85%: TSL_GCWEB (88.7%), GEMAS_DATA (89.6%). Ver DBA_HIST_SQLSTAT y SQL_ID."),
+        "12 tablespace(s) por encima del 85%: TS_DATOS_02 (88.7%), TS_DATOS_01 (89.6%). Ver DBA_HIST_SQLSTAT y SQL_ID.");
+});
+
+test("modo presentación oculta identificadores y literales del SQL", () => {
+    const P = loadPresent();
+    P.mask({ esquema: "ENET" });
+    assert.equal(P.maskSql("SELECT a.id FROM enet.t_cups a WHERE a.cups = 'ES0031' AND x = :1 -- nota"),
+        "SELECT obj_01.obj_02 FROM esquema_01.obj_03 obj_01 WHERE obj_01.obj_04 = '***' AND obj_05 = :1 -- …");
+});
+
+test("modo presentación revierte seudónimos en rutas y cuerpos, y bloquea escrituras", () => {
+    const P = loadPresent();
+    P.mask({ username: "mario", esquema: "GCWEB" });
+    assert.equal(P.unmaskPath(`/awr/weekly/download?name=${encodeURIComponent("DEMO_DB_Informe.xlsx")}`), "/awr/weekly/download?name=PRAGU4E_Informe.xlsx");
+    assert.equal(P.unmask({ question: "¿Qué hace ESQUEMA_01 y demo01?" }).question, "¿Qué hace GCWEB y mario?");
+    assert.equal(P.canWrite({ estado: "En curso", nota: "" }), true);
+    assert.equal(P.canWrite({ nota: "Comentario de seguimiento (oculto en modo presentación)" }), false);
+    const off = loadPresent(false);
+    assert.equal(off.mask({ esquema: "GCWEB" }).esquema, "GCWEB");
+    assert.equal(off.canWrite({ nota: "x" }), true);
 });

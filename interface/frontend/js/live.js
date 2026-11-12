@@ -21,8 +21,8 @@ function openLiveEvents() {
     live.es = es;
     es.onopen = () => { live.sse = true; };
     es.onerror = () => { live.sse = false; };
-    es.addEventListener("status", (e) => applyHealth(JSON.parse(e.data)));
-    es.addEventListener("notifications", (e) => applyNotifications(JSON.parse(e.data)));
+    es.addEventListener("status", (e) => applyHealth(Present.mask(JSON.parse(e.data))));
+    es.addEventListener("notifications", (e) => applyNotifications(Present.mask(JSON.parse(e.data))));
     es.addEventListener("logout", () => { closeLiveEvents(); showLogin(); });
 }
 

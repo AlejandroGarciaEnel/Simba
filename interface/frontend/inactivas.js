@@ -29,7 +29,7 @@
             if (res.status === 401) { location.href = "/"; return; }
             if (res.status === 403) throw new Error("Este listado requiere rol dba o administrador.");
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Error ${res.status}`);
-            const data = await res.json();
+            const data = Present.mask(await res.json());
             st.rows = data.sessions;
             st.taken = data.taken_at || "";
             $("msg").textContent = "";
@@ -122,6 +122,7 @@
     $("min").onchange = (e) => { st.min = Number(e.target.value); st.page = 0; render(); };
     $("prev").onclick = () => { st.page -= 1; render(); };
     $("next").onclick = () => { st.page += 1; render(); };
+    $("present-badge").hidden = !Present.isOn();
     $("reload").onclick = () => load(false);
     $("csv").onclick = exportCsv;
     $("back").onclick = (e) => { if (history.length > 1 && document.referrer) { e.preventDefault(); history.back(); } };

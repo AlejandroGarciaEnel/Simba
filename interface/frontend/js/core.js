@@ -126,6 +126,9 @@ function sevPill(sev) {
 }
 
 async function api(path, { method = "GET", body, headers = {}, raw = false } = {}) {
+    if (!Present.canWrite(body)) throw new Error("Modo presentación activo: desactívalo para guardar notas.");
+    path = Present.unmaskPath(path);
+    if (body !== undefined && !(body instanceof FormData)) body = Present.unmask(body);
     const opts = { method, headers: { ...headers }, credentials: "same-origin" };
     if (method !== "GET" && state.user?.csrf) opts.headers["X-CSRF-Token"] = state.user.csrf;
     if (body instanceof FormData) opts.body = body;
@@ -140,13 +143,14 @@ async function api(path, { method = "GET", body, headers = {}, raw = false } = {
     }
     if (raw) return res;
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || data.message || `Error ${res.status}`);
-    return data;
+    if (!res.ok) throw new Error(Present.maskText(String(data.detail || data.message || `Error ${res.status}`)));
+    return Present.mask(data);
 }
 
 // ========== Arranque y sesión ==========
 document.addEventListener("DOMContentLoaded", async () => {
     initTheme();
+    initPresent();
     bindEvents();
     try {
         state.user = await api("/auth/me");
