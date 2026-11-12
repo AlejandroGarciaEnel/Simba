@@ -26,7 +26,7 @@ const Present = (() => {
         usuario_so: "osuser", OSUSER: "osuser",
         maquina: "host", MAQUINA: "host", MACHINE: "host", TERMINAL: "host", terminal: "host",
         TABLESPACE_NAME: "ts", tablespace: "ts",
-        objeto: "object", OBJETO: "object", OBJECT_NAME: "object",
+        objeto: "object", OBJETO: "object", OBJECT_NAME: "object", PROPIETARIO: "schema", TABLA: "object",
         sql_text: "sql", sql_texto: "sql", SQL_TEXT: "sql", sql_fulltext: "sql",
         notas: "note", notas_analisis: "note", nota: "note", nota_local: "note",
     };
@@ -45,6 +45,13 @@ const Present = (() => {
     // Identificadores Oracle en mayúsculas con guion bajo (TSL_GCWEB…) que aparecen solo en textos libres.
     const ORA_NAME = /(?<![\w$#.])[A-Z][A-Z0-9$#]*_[A-Z0-9_$#]+(?![\w$#])/g;
     const ORA_KEEP = /^(DBA|CDB|ALL|USER|SYS|GV|V)_|^(SQL_ID|SQL_TEXT|PLAN_HASH_VALUE|LIMIT_VALUE|RESOURCE_NAME|TABLESPACE_NAME)$|_(TIME|GETS|READS|WRITES|VALUE|NAME|ID|PCT|MB|GB)$/;
+    // Frases del backend que citan usuarios u objetos sin campo propio (health/checker.py, sql_analysis.py).
+    const CONTEXT = [
+        [/(\bde )([A-Z][A-Z0-9_$#]{2,})(?= al \d)/g, "schema"],
+        [/(\busuario )([A-Z][A-Z0-9_$#]{2,})\b/g, "schema"],
+        [/(\bmáquina )([\w.\\-]*[\d\\.-][\w.\\-]*\w)/g, "host"],
+    ];
+    const DOTTED = /(?<![\w$#.])([A-Z][A-Z0-9_$#]{1,29})\.([A-Z][A-Z0-9_$#]{1,29})(?![\w$#])/g;
     const PERSON_RE = /^[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+)+$/;
 
     const pad = (n) => String(n).padStart(2, "0");
@@ -107,6 +114,9 @@ const Present = (() => {
             textRe = boundaryRe(tokens) || false;
         }
         if (textRe) s = s.replace(textRe, (m) => TEXT_KINDS.map((k) => lookup(k, m)).find(Boolean) || m);
+        for (const [re, k] of CONTEXT) s = s.replace(re, (all, pre, name) => pre + (map.fake[name] || KEEP_SCHEMAS.has(name) ? name : register(k, name)));
+        s = s.replace(DOTTED, (all, a, b) => map.fake[a] || KEEP_SCHEMAS.has(a) || ORA_KEEP.test(b) ? all
+            : `${lookup("schema", a) || register("schema", a)}.${map.fake[b] ? b : lookup("object", b) || register("object", b)}`);
         const kind = /tablespace/i.test(s) ? "ts" : "object";
         return s.replace(ORA_NAME, (m) => map.fake[m] || ORA_KEEP.test(m) ? m : register(kind, m));
     }

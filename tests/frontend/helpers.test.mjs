@@ -121,6 +121,8 @@ test("modo presentación seudonimiza campos y también los textos libres", () =>
     assert.equal(out.csrf, "ENET");
     assert.equal(P.maskText("12 tablespace(s) por encima del 85%: TSL_GCWEB (88.7%), GEMAS_DATA (89.6%). Ver DBA_HIST_SQLSTAT y SQL_ID."),
         "12 tablespace(s) por encima del 85%: TS_DATOS_02 (88.7%), TS_DATOS_01 (89.6%). Ver DBA_HIST_SQLSTAT y SQL_ID.");
+    assert.equal(P.maskText("la mayor: Index Fast Full Scan de LAVORIMT al 34.5%; usuario ATLANTE, máquina srv-app01.local. Lectura completa de: GIS.T_CUPS. Hay SYS.OBJ$"),
+        "la mayor: Index Fast Full Scan de ESQUEMA_03 al 34.5%; usuario ESQUEMA_04, máquina equipo-02. Lectura completa de: ESQUEMA_05.OBJETO_02. Hay SYS.OBJ$");
 });
 
 test("modo presentación oculta identificadores y literales del SQL", () => {
