@@ -19,7 +19,7 @@ from agent.agent import build_agent
 from db.connection import get_connection
 from langchain_core.messages import AIMessage
 import report.awr_analyzer as awr
-
+from report.awr_followup import analyze_with_followup, followup_enabled
 # Formato esperado de un session id emitido por secrets.token_urlsafe(32)
 _SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 SESSION_TTL = timedelta(minutes=30)
@@ -244,7 +244,7 @@ class ChatHandler:
             # Agregar respuesta al historial de la sesión
             self.sessions.append_message(session_id, "assistant", assistant_message)
 
-            report_filename = self._extract_generated_filename(assistant_message, "dbCheck")            
+            report_filename = self._extract_generated_filename(assistant_message, "dbCheck")
             return {
                 "success": True,
                 "message": assistant_message,
@@ -298,11 +298,18 @@ class ChatHandler:
         file_path = awr.AWR_DIR / filename
         file_path.write_bytes(content)
 
-        summary = awr.summarize_awr_report(file_path)
+        # el seguimiento en vivo solo se intenta con la BD conectada y el interruptor activo
+        outcome = analyze_with_followup(file_path, followup=self.db_connected and followup_enabled())
         self._prune_awr_files()
         self.sessions.append_message(session_id, "user", f"[Informe AWR cargado: {filename}]")
-        self.sessions.append_message(session_id, "assistant", summary)
-        return {"success": True, "filename": filename, "message": summary}
+        self.sessions.append_message(session_id, "assistant", outcome.message)
+        return {
+            "success": True,
+            "filename": filename,
+            "message": outcome.message,
+            "summary": outcome.summary,
+            "followup": outcome.followup,
+        }
 
     def _prune_awr_files(self) -> None:
         files = sorted(awr.AWR_DIR.glob("awr_*.htm*"), key=lambda p: p.stat().st_mtime, reverse=True)

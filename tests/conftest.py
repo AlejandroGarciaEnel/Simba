@@ -8,6 +8,15 @@ import pytest
 from langchain_core.messages import AIMessage
 
 
+@pytest.fixture(autouse=True)
+def isolate_awr_followup(monkeypatch):
+    """Por defecto el seguimiento AWR no toca una BD real."""
+    def no_database():
+        raise RuntimeError("sin BD en tests")
+
+    monkeypatch.setattr("report.awr_followup.get_connection", no_database)
+
+
 @pytest.fixture
 def fake_cursor():
     """Cursor simulado utilizable como context manager (with conn.cursor() as cur)."""

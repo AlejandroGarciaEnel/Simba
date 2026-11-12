@@ -153,6 +153,7 @@ async function uploadAwr(files) {
         rememberChat(res);
         if (!res.ok || !data.success) throw new Error(data.detail || data.message || `Error ${res.status}`);
         pushMessage("assistant", data.message);
+        toast(data.followup ? "Informe AWR analizado y contrastado con la BD" : "Informe AWR guardado y analizado");
     } catch (err) {
         pushMessage("assistant", `⚠️ No se pudo analizar el informe AWR: ${err.message}`);
     } finally {

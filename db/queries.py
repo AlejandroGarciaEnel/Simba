@@ -15,7 +15,7 @@ from db.connection import get_connection
 
 logger = logging.getLogger("db.queries")
 
-# Timeout por query en milisegundos (cx_Oracle Connection.callTimeout); configurable
+# Timeout por query en milisegundos (python-oracledb Connection.callTimeout); configurable
 # vía SIMBA_DB_QUERY_TIMEOUT_MS para no bloquear el agente ante una BD lenta/colgada.
 QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
 
@@ -34,7 +34,7 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None, *, max_rows: int = 
     start = time.perf_counter()
     conn = get_connection()
     try:
-        # en cx_Oracle el timeout es de la conexión (el cursor no tiene callTimeout y no se aplicaba)
+        # en Oracle el timeout es de la conexión (el cursor no tiene callTimeout y no se aplicaba)
         try:
             wanted = timeout_ms or QUERY_TIMEOUT_MS
             if conn.callTimeout != wanted:
@@ -97,6 +97,7 @@ def get_top_cpu_queries(limit: int = 5) -> list[dict[str, Any]]:
         SELECT *
         FROM (
             SELECT
+                q.sql_id                                            AS sql_id,
                 s.username                                          AS usuario,
                 q.executions                                        AS ejecuciones,
                 ROUND(q.cpu_time * 100.0 /

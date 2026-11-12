@@ -5,11 +5,12 @@
 SIMBA es un agente conversacional orientado a la monitorización operativa de bases de datos Oracle. Su finalidad es permitir a un administrador o responsable de soporte consultar el estado de la base de datos en lenguaje natural sin ejecutar manualmente SQL complejos.
 
 El sistema combina:
-- conexión Oracle con cx_Oracle
+- conexión Oracle con python-oracledb
 - herramientas de consulta de rendimiento
 - un modelo LLM para interpretar peticiones naturales
 - un backend REST para interacción web
 - generación de informes HTML para análisis posterior
+- análisis de informes AWR subidos por el usuario
 
 ---
 
@@ -28,6 +29,7 @@ El sistema debe permitir:
 - detectar patrones de pooling
 - inspeccionar bloqueos entre tablas
 - generar un informe HTML en la carpeta reports/
+- analizar informes AWR (RF021) cargados desde la web o desde la carpeta awr/
 
 ---
 
@@ -51,23 +53,33 @@ El sistema debe permitir:
 - `db/connection.py`
 - gestiona la conexión singleton a Oracle
 - usa variables de entorno como DB_HOST, DB_PORT, DB_SERVICE, DB_USER y DB_PASSWORD
-- inicializa instant client con ORACLE_CLIENT_DIR
+- inicializa instant client (modo Thick) solo si ORACLE_CLIENT_DIR está definida; por defecto modo Thin
+- el modo Thin requiere Oracle Database 12.1+ y no soporta verificadores de contraseña antiguos (10G, error DPY-3015); en ese caso hay que usar modo Thick (Instant Client 23ai, 64 bits) o regenerar la contraseña del usuario
 
 ### 4.2 Capa de consultas
 - `db/queries.py`
 - define una función por requisito funcional
-- aplica timeout por query usando SIMBA_DB_QUERY_TIMEOUT_MS
+- aplica timeout por query usando SIMBA_DB_QUERY_TIMEOUT_MS (Cursor.callTimeout de python-oracledb, 5000 ms por defecto)
 - protege resultados con límite defensivo HARD_ROW_LIMIT = 500
+- registra cada query (operación, duración y filas) en el logger `db.queries`
 
 ### 4.3 Capa de herramientas del agente
 - `agent/tools.py`
-- expone cada RF como herramienta LangChain
+- expone cada RF como herramienta LangChain (incluida `analyze_awr_report`, RF021)
 - devuelve resultados en formato tabular legible para el LLM
+
+### 4.3.1 Análisis AWR
+- `report/awr_analyzer.py`
+- analiza informes AWR en HTML y genera el resumen ejecutivo (hallazgos ADDM, áreas afectadas y top SQL por tiempo transcurrido)
+- solo acepta `docs/awr_example.html` o ficheros .html/.htm dentro de `awr/`
+- `report/awr_followup.py`
+- tras el resumen ejecuta el seguimiento en vivo (consultas de solo lectura de una lista blanca asociadas a los hallazgos), compara los SQL IDs del AWR con RF002/RF010
 
 ### 4.4 Capa de orquestación LLM
 - `agent/agent.py`
 - construye el agente con ChatOpenAI
-- soporta OpenAI y GenAI Hub
+- soporta OpenAI (OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL) y GenAI Hub (GENAIHUB_*), según LLM_PROVIDER
+- SSL_VERIFY permite desactivar la verificación TLS (solo para entornos corporativos controlados)
 - define un prompt con la capacidad operativa del monitor
 
 ### 4.5 API y frontend
@@ -79,9 +91,12 @@ El sistema debe permitir:
 La API gestiona:
 - chat
 - historial por sesión
-- salud del sistema
-- reinicio de conexión
+- salud del sistema (estado de BD y LLM por separado)
+- reinicio de conexión (reintenta solo el componente que falla)
 - descarga de informes HTML
+- subida y análisis de informes AWR (`POST /api/awr/upload`)
+
+Endpoints: `GET /api/health`, `POST /api/chat`, `POST /api/reset-connection`, `GET /api/download-report/{filename}`, `POST /api/awr/upload`, `GET /api/chat-history` y `POST /api/clear-history`. El historial se aísla por sesión mediante la cabecera `X-Session-Id`.
 
 ---
 
@@ -108,7 +123,7 @@ La API gestiona:
 ### RF002 — Top SQLs por CPU
 - **Descripción**: muestra las consultas con mayor consumo de CPU.
 - **Parámetro**: limit (por defecto 5)
-- **Resultado**: usuario, ejecuciones, porcentaje de CPU, cpu_time y SQL
+- **Resultado**: SQL ID, usuario, ejecuciones, porcentaje de CPU, cpu_time y SQL (el SQL ID se puede usar directamente como parámetro de RF010)
 
 ### RF003 — Top sesiones por CPU
 - **Descripción**: muestra las sesiones activas con mayor consumo de CPU.
@@ -248,11 +263,12 @@ La API gestiona:
 - **Resultado**: número total de sesiones, además de activas e inactivas > 30 minutos
 
 ### RF021 — Análisis de informe AWR
-- **Descripción**: analiza un informe HTML de AWR y devuelve un resumen ejecutivo con base de datos, instantáneas, instancias, hallazgos de ADDM y recomendaciones de seguimiento.
+- **Descripción**: analiza un informe HTML de AWR y devuelve un resumen ejecutivo con base de datos, instantáneas, instancias, hallazgos de ADDM y SQL con mayor tiempo, y **ejecuta a continuación las recomendaciones de seguimiento en la BD activa** (contraste en vivo).
 - **Parámetro**: file_path (nombre de un informe de la carpeta awr/ o docs/awr_example.html, valor por defecto). Cualquier otra ruta se rechaza.
-- **Carga desde la web**: el usuario arrastra y suelta el .html sobre el chat (o usa el botón "Cargar informe AWR"). El fichero se envía a `POST /api/awr/upload` (multipart, campo `file`), se guarda en `./awr` con un nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y se analiza al momento, sin necesitar BD ni LLM. El resumen se añade al historial de la sesión para poder hacer preguntas de seguimiento.
+- **Seguimiento automático**: cada hallazgo se asocia a un área y esta a un conjunto fijo de consultas de solo lectura: SQL → comparación de los SQL IDs del AWR con el top de CPU actual (RF002) y las sesiones activas (RF010); CPU → RF001 y RF003; bloqueos/contención → RF005 y RF017; E/S y esperas → RF015; sesiones/conexiones → RF014 y RF020; memoria → RF008 y RF008.1; sin hallazgos asociables → RF007, RF008 y RF015. Las acciones salen de una lista blanca: el contenido del AWR nunca se ejecuta ni se pasa como argumento (los SQL IDs deben cumplir `[a-z0-9]{13}`). Cada acción se aísla (un fallo parcial no cancela el resto) y el conjunto está limitado a 12 consultas y a `SIMBA_AWR_FOLLOWUP_BUDGET_S` segundos (30 por defecto). Sin conexión a BD se devuelve solo el resumen con un aviso.
+- **Carga desde la web**: el usuario arrastra y suelta el .html sobre el chat (o usa el botón "Cargar informe AWR"). El fichero se envía a `POST /api/awr/upload` (multipart, campo `file`), se guarda en `./awr` con un nombre generado por el servidor (`awr_<dd-mm-YYYY_HH-MM-SS>_<token>.html`) y se analiza al momento sin necesitar LLM; la BD es opcional: con BD conectada se ejecuta el seguimiento, que puede desactivarse con `SIMBA_AWR_FOLLOWUP=false`. La respuesta incluye `summary` y `followup`. El resultado completo se añade al historial de la sesión para poder hacer preguntas de seguimiento.
 - **Validaciones**: extensión .html/.htm, fichero no vacío, contenido con la cabecera `WORKLOAD REPOSITORY`, tamaño máximo `SIMBA_AWR_MAX_MB` (20 MB por defecto). Se conservan como máximo `SIMBA_AWR_MAX_FILES` informes (50 por defecto), eliminando los más antiguos.
-- **Resultado**: texto resumido, legible para un usuario no experto, con la guía de qué RF de monitorización en vivo puede usar para contrastar la causa real
+- **Resultado**: texto resumido, legible para un usuario no experto, seguido del bloque "Contraste en vivo" con las tablas de los RF ejecutados y una conclusión que indica si el problema del AWR persiste en la BD
 
 ---
 
@@ -280,6 +296,7 @@ El proyecto tiene un enfoque local y no productivo por defecto.
 - Gestión independiente de reintentos para conexión Oracle y agente LLM
 - Timeout de conexión a nivel de query con límite defensivo de 500 filas
 - Subida de informes AWR sin autenticación: con CORS abierto, cualquier web abierta en el navegador podría enviar ficheros al servidor local (mitigado con límite de tamaño, validación de contenido, nombre generado en servidor y rotación de ficheros)
+- El seguimiento AWR de la subida web consulta la BD en vivo y devuelve sus resultados sin autenticación (mitigado con lista blanca de consultas de solo lectura, timeout por query, límite de consultas y de tiempo, y el interruptor `SIMBA_AWR_FOLLOWUP=false`)
 
 **Recomendaciones antes de exposición real**:
 - cerrar CORS a orígenes concretos

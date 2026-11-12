@@ -12,7 +12,8 @@ from tabulate import tabulate
 from langchain_core.tools import tool
 
 import db.queries as q
-from report.awr_analyzer import resolve_awr_path, summarize_awr_report
+from report.awr_analyzer import resolve_awr_path
+from report.awr_followup import analyze_with_followup
 
 
 # ── RF001 ─────────────────────────────────────────────────────────────────────
@@ -36,9 +37,9 @@ def get_top_cpu_queries(limit: int = 5) -> str:
     rows = q.get_top_cpu_queries(limit)
     if not rows:
         return "No se encontraron queries con consumo de CPU significativo."
-    headers = ["Usuario", "Ejecuciones", "% CPU", "CPU Time", "SQL"]
+    headers = ["SQL ID", "Usuario", "Ejecuciones", "% CPU", "CPU Time", "SQL"]
     table = [
-        [r.get("USUARIO"), r.get("EJECUCIONES"), r.get("PCT_CPU"),
+        [r.get("SQL_ID"), r.get("USUARIO"), r.get("EJECUCIONES"), r.get("PCT_CPU"),
          r.get("CPU_TIME"), str(r.get("SQL") or "")[:120]]
         for r in rows
     ]
@@ -556,8 +557,10 @@ def generate_report(_: str = "") -> str:
 @tool
 def analyze_awr_report(file_path: str = "docs/awr_example.html") -> str:
     """
-    Analiza un informe AWR HTML y devuelve un resumen ejecutivo extenso de sus resultados,
-    hallazgos principales y ejecuta las recomendaciones de seguimiento en la BBDD activa que creas necesarias.
+    Analiza un informe AWR HTML y devuelve un resumen ejecutivo de sus resultados y hallazgos.
+    Tras el análisis ejecuta automáticamente en la BBDD activa las consultas de seguimiento
+    asociadas a los hallazgos y compara las SQL del AWR con el estado actual.
+    No hace falta volver a lanzar esas consultas manualmente.
     Parámetro opcional:
     - file_path: nombre de un informe subido a la carpeta awr/ (p. ej. awr_30-09-2026_10-00-00_ab12cd34.html)
       o docs/awr_example.html (valor por defecto)
@@ -565,7 +568,7 @@ def analyze_awr_report(file_path: str = "docs/awr_example.html") -> str:
     normalized_path = (file_path or "docs/awr_example.html").strip()
     try:
         path = resolve_awr_path(normalized_path)
-        return summarize_awr_report(path)
+        return analyze_with_followup(path).message
     except ValueError as exc:
         return str(exc)
     except FileNotFoundError:
