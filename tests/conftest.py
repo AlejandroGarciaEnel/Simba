@@ -46,10 +46,39 @@ def set_query_result(fake_cursor, columns: list[str], rows: list[tuple]) -> None
     fake_cursor.fetchall.return_value = rows
 
 
+TEST_PASSWORD = "contrasena-de-prueba"
+
+
 @pytest.fixture
-def api_client(monkeypatch):
-    """TestClient con el agente "inicializado" de forma simulada y un SessionStore
-    aislado por test (evita fugas de sesiones entre tests vía el singleton de módulo)."""
+def web_users(monkeypatch, tmp_path_factory):
+    """Usuarios de la web aislados por test (uno por rol) con hash rápido."""
+    from interface.backend import auth
+    from interface.backend import main as main_module
+
+    monkeypatch.setattr(auth, "PBKDF2_ITERATIONS", 1000)
+    store = auth.UserStore(tmp_path_factory.mktemp("web_users") / "users.json")
+    for role in auth.ROLES:
+        store.create(f"user_{role}", TEST_PASSWORD, role)
+    monkeypatch.setattr(main_module, "user_store", store)
+    monkeypatch.setattr(main_module, "login_sessions", auth.SessionManager())
+    return store
+
+
+@pytest.fixture
+def login_as(web_users):
+    """Inicia sesión en un TestClient con el usuario de prueba del rol indicado."""
+    def _login(client, role: str = "administrador") -> None:
+        response = client.post("/api/auth/login", json={"username": f"user_{role}", "password": TEST_PASSWORD})
+        assert response.status_code == 200, response.text
+        client.headers["X-CSRF-Token"] = response.json()["csrf"]
+    return _login
+
+
+@pytest.fixture
+def api_client(monkeypatch, login_as):
+    """TestClient con el agente "inicializado" de forma simulada, un SessionStore
+    aislado por test (evita fugas de sesiones entre tests vía el singleton de módulo)
+    y sesión iniciada como administrador."""
     from fastapi.testclient import TestClient
     from interface.backend import main as main_module
     from interface.backend.api_handlers import ChatHandler, SessionStore
@@ -67,4 +96,5 @@ def api_client(monkeypatch):
     monkeypatch.setattr(main_module.chat_handler, "sessions", SessionStore())
 
     with TestClient(main_module.app) as client:
+        login_as(client)
         yield client

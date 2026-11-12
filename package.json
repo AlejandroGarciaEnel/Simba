@@ -1,0 +1,13 @@
+{
+  "name": "simba-frontend",
+  "private": true,
+  "description": "Herramientas de build y tests del frontal de SIMBA (no hacen falta para ejecutar la app).",
+  "scripts": {
+    "build:css": "tailwindcss -i interface/frontend/tailwind/index.css -o interface/frontend/vendor/tailwind-index.css --minify && tailwindcss -i interface/frontend/tailwind/inactivas.css -o interface/frontend/vendor/tailwind-inactivas.css --minify",
+    "test": "node --test tests/frontend/"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.5",
+    "tailwindcss": "4.3.5"
+  }
+}

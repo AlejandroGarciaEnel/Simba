@@ -1,0 +1,128 @@
+{
+  "nueva_sin_seguimiento": {
+    "accion": "Entra en el top de consumo y no tiene responsable ni análisis: asignarla y revisar su plan de ejecución.",
+    "urgencia": "Según la CPU que consume",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "completada_reaparece": {
+    "accion": "Marcada como completada pero sigue en el top con un consumo parecido: comprobar que el cambio está desplegado en producción y que Oracle usa el plan nuevo (plan_hash_value en GV$SQL / DBMS_XPLAN).",
+    "urgencia": "Alta",
+    "responsable": "DBA + responsable de la mejora",
+    "revisado_por_dba": false
+  },
+  "completada_sin_medir": {
+    "accion": "Mejora implantada sin tiempos antes/después: medirlos para poder cerrarla y cuantificar la ganancia.",
+    "urgencia": "Baja",
+    "responsable": "Responsable de la mejora",
+    "revisado_por_dba": false
+  },
+  "completada_empeora": {
+    "accion": "El tiempo después del cambio es peor que el de antes: revisar el cambio y valorar volver al plan anterior.",
+    "urgencia": "Alta",
+    "responsable": "DBA + responsable de la mejora",
+    "revisado_por_dba": false
+  },
+  "estancada": {
+    "accion": "Lleva varias semanas en el top sin cerrarse: revisar qué bloquea el análisis y si hace falta escalarlo o pedir apoyo.",
+    "urgencia": "Media",
+    "responsable": "Responsable asignado",
+    "revisado_por_dba": false
+  },
+  "planes_multiples": {
+    "accion": "Tiene varios planes de ejecución en la semana: posible inestabilidad (bind peeking, estadísticas). Comparar los planes y valorar fijar el bueno con un SQL Plan Baseline.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "lecturas_por_fila": {
+    "accion": "Lee muchos bloques por cada fila que devuelve: suele indicar un acceso poco selectivo. Revisar índices sobre los filtros y joins, y si las estadísticas están al día.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "muchas_ejecuciones": {
+    "accion": "El coste viene del número de ejecuciones, no de cada una: valorar con la aplicación cachear el resultado o agrupar llamadas.",
+    "urgencia": "Media",
+    "responsable": "Equipo de la aplicación + DBA",
+    "revisado_por_dba": false
+  },
+  "plsql": {
+    "accion": "Es una llamada a un procedimiento PL/SQL: el consumo está en las sentencias que ejecuta dentro. Localizar las SQL hijas más costosas (o perfilar con DBMS_HPROF) antes de tocar nada.",
+    "urgencia": "Media",
+    "responsable": "DBA + equipo propietario del paquete",
+    "revisado_por_dba": false
+  },
+  "batch_pesado": {
+    "accion": "Pocas ejecuciones pero muy pesadas: probable proceso batch. Revisar su ventana horaria, estadísticas de las tablas que lee y si admite paralelismo o procesado incremental.",
+    "urgencia": "Media",
+    "responsable": "DBA + equipo funcional del proceso",
+    "revisado_por_dba": false
+  },
+  "analisis_plan_inestable": {
+    "accion": "Comparar el mejor y el peor plan (DBMS_XPLAN.DISPLAY_AWR con cada plan_hash_value) y, si el bueno es estable, valorar fijarlo con un SQL Plan Baseline. Revisar si depende de los valores de las variables (bind peeking, histogramas).",
+    "urgencia": "Alta",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_empeora": {
+    "accion": "El tiempo por ejecución ha subido respecto a la semana anterior: comprobar si ha cambiado el plan, el volumen de datos o el número de ejecuciones concurrentes.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_estadisticas": {
+    "accion": "Las estadísticas de alguna tabla están marcadas como obsoletas o son antiguas con muchos cambios desde entonces: valorar regenerarlas (DBMS_STATS) en una ventana tranquila, comprobando antes si están bloqueadas a propósito.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_full_scan": {
+    "accion": "Recorre completa una tabla grande. En Exadata puede ser lo correcto (Smart Scan); si la consulta devuelve pocas filas, revisar si los filtros tienen un índice adecuado.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_cartesiano": {
+    "accion": "El plan incluye un producto cartesiano: suele indicar una condición de join que falta o estimaciones erróneas. Revisar la SQL con el equipo de la aplicación.",
+    "urgencia": "Alta",
+    "responsable": "DBA + equipo de la aplicación",
+    "revisado_por_dba": false
+  },
+  "analisis_indice_no_usable": {
+    "accion": "Hay índices UNUSABLE o INVISIBLE en las tablas que usa: confirmar si es intencionado; un índice inutilizable puede forzar planes peores.",
+    "urgencia": "Alta",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_muchos_hijos": {
+    "accion": "Muchos cursores hijos para la misma SQL: revisar los motivos en GV$SQL_SHARED_CURSOR (variables con tamaños distintos, entornos de optimizador, ACS). Generan parseos y planes distintos.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_lecturas_por_fila": {
+    "accion": "Lee muchos bloques para las pocas filas que devuelve: revisar en el plan dónde se filtran las filas y si un índice más selectivo evitaría lecturas.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_plsql_hijas": {
+    "accion": "Es una llamada PL/SQL: analizar las SQL hijas que más tiempo consumen (abajo) en lugar de la llamada.",
+    "urgencia": "Media",
+    "responsable": "DBA + equipo propietario del paquete",
+    "revisado_por_dba": false
+  },
+  "analisis_baseline_no_aplicada": {
+    "accion": "El seguimiento indica que se aplicó una baseline, pero ningún cursor en memoria la está usando: comprobar en DBA_SQL_PLAN_BASELINES que está ENABLED y ACCEPTED y que coincide con la SQL (signature).",
+    "urgencia": "Alta",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "analisis_sin_datos": {
+    "accion": "No hay datos de esta SQL en memoria ni en el AWR de los últimos 30 días: puede haber dejado de ejecutarse.",
+    "urgencia": "Baja",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  }
+}

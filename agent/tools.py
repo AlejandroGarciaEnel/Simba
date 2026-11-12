@@ -575,7 +575,70 @@ def analyze_awr_report(file_path: str = "docs/awr_example.html") -> str:
         return f"Informe AWR no encontrado: {Path(normalized_path).name}"
 
 
+# ── RF022 ────────────────────────────────────────────────────────────────────
+@tool
+def check_database_health(force_refresh: bool = False) -> str:
+    """
+    Revisión completa del estado de la BBDD en una sola llamada: CPU, bloqueos (con causa probable),
+    límites de conexiones, espacio (tablespaces/TEMP/UNDO), sesiones inactivas, errores ORA- recientes,
+    esperas y operaciones largas. Reutiliza la última revisión si es reciente (indica su hora).
+    USAR PRIMERO ante preguntas como "¿cómo está la base de datos?" o "veo problemas en las aplicaciones".
+    Parámetro:
+    - force_refresh: dejar SIEMPRE en False (valor por defecto). Poner True únicamente si el usuario
+      pide con palabras explícitas volver a revisar ("de nuevo", "otra vez", "actualiza", "refresca").
+      Decir que ve problemas o preguntar por el estado NO es motivo para forzar: la revisión en caché
+      tiene como máximo unos minutos y se muestra su hora.
+    """
+    from health.checker import CAN_FORCE_REFRESH, REQUESTER, format_health, get_health
+
+    force = bool(force_refresh) and CAN_FORCE_REFRESH.get()
+    return format_health(get_health(requested_by=REQUESTER.get(), force_refresh=force))
+
+
+@tool
+def get_query_improvement_recommendations(sql_id: str = "") -> str:
+    """
+    Recomendaciones sobre el informe semanal de queries más costosas de PRAGU4E y su seguimiento de mejoras:
+    SQL nuevas en el top sin responsable, completadas que siguen en el top, mejoras estancadas o sin medir y
+    pistas técnicas (varios planes, muchas lecturas por fila, PL/SQL, exceso de ejecuciones, batch pesado).
+    Usar cuando pregunten por el informe/reporte semanal, las queries a mejorar o el estado de las mejoras.
+    Parámetro:
+    - sql_id: opcional, para ver solo una SQL_ID concreta.
+    """
+    from query_reports.advisor import format_query_improvements, get_query_improvements
+
+    return format_query_improvements(get_query_improvements(), sql_id=sql_id or None)
+
+
+@tool
+def analyze_sql_performance(sql_id: str) -> str:
+    """
+    Análisis técnico de una SQL problemática (solo usuarios DBA): planes de ejecución en memoria y en el AWR
+    (30 días) con su rendimiento, tendencia diaria, estadísticas e índices de las tablas, cursores hijos,
+    baselines/perfiles y, si es PL/SQL, las SQL hijas que más tiempo consumen. Devuelve hallazgos y sugerencias.
+    Usar cuando pidan analizar, diagnosticar o explicar por qué una SQL_ID concreta es lenta o costosa.
+    Parámetro obligatorio:
+    - sql_id: identificador de 13 caracteres.
+    """
+    from health.checker import CAN_FORCE_REFRESH
+    from query_reports.advisor import get_query_improvements
+    from query_reports.sql_analysis import analyze_sql, format_sql_analysis
+
+    if not CAN_FORCE_REFRESH.get():
+        return "El análisis detallado de SQL está reservado al rol DBA. Pide a un DBA que lo revise."
+    sid = (sql_id or "").strip().lower()
+    board = get_query_improvements().get("board") or []
+    context = next((c for c in board if c["sql_id"] == sid), None)
+    try:
+        return format_sql_analysis(analyze_sql(sid, context=context))
+    except ValueError as exc:
+        return str(exc)
+
+
 ALL_TOOLS = [
+    check_database_health,
+    get_query_improvement_recommendations,
+    analyze_sql_performance,
     get_cpu_usage,
     get_top_cpu_queries,
     get_top_cpu_sessions,

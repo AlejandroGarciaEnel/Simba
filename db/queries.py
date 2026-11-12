@@ -15,26 +15,33 @@ from db.connection import get_connection
 
 logger = logging.getLogger("db.queries")
 
-# Timeout por query en milisegundos (python-oracledb Cursor.callTimeout); configurable
+# Timeout por query en milisegundos (python-oracledb Connection.callTimeout); configurable
 # vía SIMBA_DB_QUERY_TIMEOUT_MS para no bloquear el agente ante una BD lenta/colgada.
 QUERY_TIMEOUT_MS = int(os.environ.get("SIMBA_DB_QUERY_TIMEOUT_MS", "5000"))
 
 # Salvaguarda defensiva: nunca devolver más filas que esto, aunque una query
 # sin límite explícito (p. ej. get_sga_info) devuelva un resultado inesperado.
 HARD_ROW_LIMIT = 500
+# El resumen semanal (batch) recorre DBA_HIST_SQLSTAT de una semana: necesita más margen que el panel.
+WEEKLY_TIMEOUT_MS = 180_000
+INACTIVE_LIST_MAX_ROWS = 20000  # el listado completo de inactivas no debe truncarse a 500
 
 
-def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, Any]]:
+def _fetchall_as_dicts(sql: str, params: dict | None = None, *, max_rows: int = HARD_ROW_LIMIT,
+                      timeout_ms: int | None = None) -> list[dict[str, Any]]:
     # nombre de la función RF llamante (db.queries.get_xxx), para identificar la query en los logs
     operation = inspect.stack()[1].function
     start = time.perf_counter()
     conn = get_connection()
     try:
+        # en Oracle el timeout es de la conexión (el cursor no tiene callTimeout y no se aplicaba)
+        try:
+            wanted = timeout_ms or QUERY_TIMEOUT_MS
+            if conn.callTimeout != wanted:
+                conn.callTimeout = wanted
+        except AttributeError:
+            logger.debug("connection_without_calltimeout op=%s", operation)
         with conn.cursor() as cur:
-            try:
-                cur.callTimeout = QUERY_TIMEOUT_MS
-            except AttributeError:
-                logger.debug("cursor_without_calltimeout op=%s", operation)
             cur.execute(sql, params or {})
             columns = [col[0] for col in cur.description]
             rows = cur.fetchall()
@@ -43,10 +50,10 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, A
         logger.error("query_error op=%s duration_ms=%.1f", operation, duration_ms)
         raise
 
-    truncated = len(rows) > HARD_ROW_LIMIT
+    truncated = len(rows) > max_rows
     if truncated:
-        rows = rows[:HARD_ROW_LIMIT]
-        logger.warning("query_truncated op=%s rows=%d limit=%d", operation, len(rows), HARD_ROW_LIMIT)
+        rows = rows[:max_rows]
+        logger.warning("query_truncated op=%s rows=%d limit=%d", operation, len(rows), max_rows)
 
     duration_ms = (time.perf_counter() - start) * 1000
     logger.info("query_ok op=%s duration_ms=%.1f rows=%d", operation, duration_ms, len(rows))
@@ -54,6 +61,19 @@ def _fetchall_as_dicts(sql: str, params: dict | None = None) -> list[dict[str, A
 
 
 # ── RF001 ─────────────────────────────────────────────────────────────────────
+def get_cpu_usage_by_node() -> list[dict[str, Any]]:
+    """Porcentaje de CPU de cada nodo del clúster (gv$osstat)."""
+    sql = """
+        SELECT b.inst_id AS nodo,
+               ROUND(b.value * 100.0 / NULLIF(b.value + i.value, 0), 2) AS cpu_pct
+        FROM gv$osstat b
+        JOIN gv$osstat i ON i.inst_id = b.inst_id AND i.stat_name = 'IDLE_TIME'
+        WHERE b.stat_name = 'BUSY_TIME'
+        ORDER BY b.inst_id
+    """
+    return [{"nodo": int(r["NODO"]), "uso": float(r["CPU_PCT"] or 0.0)} for r in _fetchall_as_dicts(sql)]
+
+
 def get_cpu_usage() -> float:
     """Porcentaje de CPU utilizado en el momento (RF001)."""
     sql = """
@@ -883,3 +903,474 @@ def get_total_sessions() -> int:
     if not rows:
         return 0
     return int(rows[0].get("NUMERO_SESIONES") or 0)
+
+
+# ── Revisión de estado (health check) ─────────────────────────────────────────
+def get_tablespace_usage() -> list[dict[str, Any]]:
+    """Uso de tablespaces: todos los TEMP/UNDO y los permanentes por encima del 70 %."""
+    sql = """
+        SELECT
+            m.tablespace_name,
+            t.contents,
+            ROUND(m.used_percent, 2) AS used_pct
+        FROM dba_tablespace_usage_metrics m
+        JOIN dba_tablespaces t ON t.tablespace_name = m.tablespace_name
+        WHERE t.contents IN ('TEMPORARY', 'UNDO')
+           OR m.used_percent >= 70
+        ORDER BY m.used_percent DESC
+    """
+    return _fetchall_as_dicts(sql)
+
+
+def get_resource_limits() -> list[dict[str, Any]]:
+    """Sesiones y procesos actuales frente a sus límites, por nodo del clúster (GV$).
+
+    V$RESOURCE_LIMIT puede venir vacía para usuarios de solo monitorización.
+    """
+    sql = """
+        SELECT
+            'sessions (nodo ' || s.inst_id || ')' AS resource_name,
+            s.n                                    AS current_utilization,
+            TRIM(p.value)                          AS limit_value
+        FROM (SELECT inst_id, COUNT(*) AS n FROM gv$session GROUP BY inst_id) s
+        JOIN gv$parameter p ON p.inst_id = s.inst_id AND p.name = 'sessions'
+        UNION ALL
+        SELECT
+            'processes (nodo ' || s.inst_id || ')',
+            s.n,
+            TRIM(p.value)
+        FROM (SELECT inst_id, COUNT(*) AS n FROM gv$process GROUP BY inst_id) s
+        JOIN gv$parameter p ON p.inst_id = s.inst_id AND p.name = 'processes'
+    """
+    return _fetchall_as_dicts(sql)
+
+
+def get_blocked_waits(limit: int = 10) -> list[dict[str, Any]]:
+    """Sesiones bloqueadas con el tiempo que llevan esperando y el estado del bloqueante."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT
+                w.sid                  AS sid_bloqueada,
+                w.username             AS usuario_bloqueado,
+                w.event                AS evento,
+                w.seconds_in_wait      AS segundos_espera,
+                b.sid                  AS sid_bloqueante,
+                b.username             AS usuario_bloqueante,
+                b.status               AS estado_bloqueante,
+                b.machine              AS maquina_bloqueante,
+                b.program              AS programa_bloqueante,
+                b.last_call_et         AS segundos_ultima_llamada
+            FROM gv$session w
+            JOIN gv$session b ON b.inst_id = w.blocking_instance AND b.sid = w.blocking_session
+            WHERE w.blocking_session IS NOT NULL
+            ORDER BY w.seconds_in_wait DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_blocked_session_list(limit: int = 300) -> list[dict[str, Any]]:
+    """Todas las sesiones bloqueadas (cualquier nodo del RAC) con su bloqueante directo y final. Solo SELECT."""
+    sql = """
+        SELECT
+            w.inst_id AS instancia, w.sid AS sid, w.serial# AS serial,
+            w.username AS usuario, w.machine AS maquina, w.program AS programa, w.module AS modulo,
+            w.event AS evento, w.seconds_in_wait AS segundos_espera,
+            NVL(w.sql_id, w.prev_sql_id) AS sql_id,
+            w.blocking_instance AS inst_bloqueante, w.blocking_session AS sid_bloqueante,
+            w.final_blocking_instance AS inst_raiz, w.final_blocking_session AS sid_raiz,
+            w.row_wait_obj# AS obj_id
+        FROM gv$session w
+        WHERE w.blocking_session IS NOT NULL
+        ORDER BY w.seconds_in_wait DESC
+        FETCH FIRST :limit ROWS ONLY
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_object_names(object_ids: list[int]) -> dict[int, str]:
+    """Nombres OWNER.OBJETO de unos pocos object_id (consulta acotada en lugar de un join sobre dba_objects)."""
+    ids = sorted({int(i) for i in object_ids if i is not None and int(i) > 0})[:100]
+    if not ids:
+        return {}
+    binds = {f"o{n}": v for n, v in enumerate(ids)}
+    sql = f"SELECT object_id, owner || '.' || object_name AS nombre FROM dba_objects WHERE object_id IN ({', '.join(':' + k for k in binds)})"
+    return {int(r["OBJECT_ID"]): r["NOMBRE"] for r in _fetchall_as_dicts(sql, binds)}
+
+
+def get_sql_texts(sql_ids: list[str]) -> dict[str, str]:
+    """Texto (200 primeros caracteres) de unos pocos SQL_ID, en una sola consulta sobre gv$sqlarea."""
+    ids = sorted({i for i in sql_ids if i})[:40]
+    if not ids:
+        return {}
+    binds = {f"s{n}": v for n, v in enumerate(ids)}
+    sql = ("SELECT sql_id, MAX(SUBSTR(sql_text, 1, 200)) AS texto FROM gv$sqlarea "
+           f"WHERE sql_id IN ({', '.join(':' + k for k in binds)}) GROUP BY sql_id")
+    return {r["SQL_ID"]: r["TEXTO"] for r in _fetchall_as_dicts(sql, binds)}
+
+
+def get_root_blockers(limit: int = 10) -> list[dict[str, Any]]:
+    """
+    Sesiones que originan los bloqueos (bloqueante final de la cadena, en cualquier nodo del RAC), con quién
+    son, qué SQL ejecutan o ejecutaron por última vez, a cuántas sesiones bloquean y sobre qué objeto.
+    """
+    sql = """
+        WITH esperas AS (
+            SELECT final_blocking_instance AS inst_b, final_blocking_session AS sid_b,
+                   seconds_in_wait, event, row_wait_obj#
+            FROM gv$session
+            WHERE final_blocking_session IS NOT NULL
+              AND final_blocking_session_status = 'VALID'
+        ),
+        agrupado AS (
+            SELECT inst_b, sid_b,
+                   COUNT(*)                                                        AS bloqueadas,
+                   MAX(seconds_in_wait)                                            AS max_espera,
+                   MAX(event)          KEEP (DENSE_RANK LAST ORDER BY seconds_in_wait) AS evento,
+                   MAX(row_wait_obj#)  KEEP (DENSE_RANK LAST ORDER BY seconds_in_wait) AS obj_id
+            FROM esperas
+            GROUP BY inst_b, sid_b
+        )
+        SELECT
+            b.inst_id                                   AS instancia,
+            b.sid                                       AS sid,
+            b.serial#                                   AS serial,
+            b.username                                  AS usuario,
+            b.osuser                                    AS usuario_so,
+            b.machine                                   AS maquina,
+            b.program                                   AS programa,
+            b.module                                    AS modulo,
+            b.status                                    AS estado,
+            b.last_call_et                              AS segundos_ultima_llamada,
+            NVL(b.sql_id, b.prev_sql_id)                AS sql_id,
+            CASE WHEN b.sql_id IS NULL THEN 'última ejecutada' ELSE 'en ejecución' END AS tipo_sql,
+            (SELECT SUBSTR(s.sql_text, 1, 200) FROM gv$sql s
+              WHERE s.inst_id = b.inst_id AND s.sql_id = NVL(b.sql_id, b.prev_sql_id) AND ROWNUM = 1) AS sql_texto,
+            a.bloqueadas                                AS sesiones_bloqueadas,
+            a.max_espera                                AS segundos_espera,
+            a.evento                                    AS evento,
+            o.owner || '.' || o.object_name             AS objeto
+        FROM agrupado a
+        JOIN gv$session b ON b.inst_id = a.inst_b AND b.sid = a.sid_b
+        LEFT JOIN dba_objects o ON o.object_id = a.obj_id
+        ORDER BY a.max_espera DESC
+        FETCH FIRST :limit ROWS ONLY
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_current_wait_events(limit: int = 5) -> list[dict[str, Any]]:
+    """Eventos de espera de las sesiones de usuario activas ahora mismo."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT event AS evento, wait_class AS clase, COUNT(*) AS sesiones
+            FROM gv$session
+            WHERE type = 'USER'
+              AND status = 'ACTIVE'
+              AND wait_class <> 'Idle'
+            GROUP BY event, wait_class
+            ORDER BY COUNT(*) DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_long_operations(limit: int = 5) -> list[dict[str, Any]]:
+    """Operaciones largas en curso (V$SESSION_LONGOPS)."""
+    sql = """
+        SELECT *
+        FROM (
+            SELECT
+                sid,
+                username                AS usuario,
+                opname                  AS operacion,
+                ROUND(sofar * 100 / NULLIF(totalwork, 0), 1) AS pct_completado,
+                elapsed_seconds         AS segundos_transcurridos,
+                time_remaining          AS segundos_restantes
+            FROM gv$session_longops
+            WHERE time_remaining > 0
+            ORDER BY elapsed_seconds DESC
+        )
+        WHERE ROWNUM <= :limit
+    """
+    return _fetchall_as_dicts(sql, {"limit": limit})
+
+
+def get_recent_problems(hours: int = 1) -> list[dict[str, Any]]:
+    """
+    Problemas de Oracle (ADR, V$DIAG_PROBLEM) con incidencias en las últimas horas, con la fecha en que
+    apareció cada uno por primera vez para distinguir lo nuevo de lo recurrente. Solo la instancia conectada.
+    Sustituye a V$DIAG_ALERT_EXT, que lee todo el alert log y en este entorno supera el minuto.
+    """
+    sql = """
+        SELECT
+            problem_key                                              AS problema,
+            TO_CHAR(firstinc_time, 'YYYY-MM-DD HH24:MI:SS')          AS primera_vez,
+            TO_CHAR(lastinc_time, 'YYYY-MM-DD HH24:MI:SS')           AS ultima_vez,
+            ROUND(SYSDATE - CAST(firstinc_time AS DATE), 1)          AS dias_desde_primera
+        FROM v$diag_problem
+        WHERE lastinc_time > SYSTIMESTAMP - NUMTODSINTERVAL(:horas, 'HOUR')
+        ORDER BY lastinc_time DESC
+    """
+    return _fetchall_as_dicts(sql, {"horas": hours})
+
+
+def get_cluster_inactive_sessions() -> int:
+    """Sesiones inactivas > 30 min sumando todos los nodos del clúster (GV$)."""
+    sql = """
+        SELECT COUNT(*) AS total_inactivas
+        FROM gv$session s
+        WHERE s.status = 'INACTIVE'
+          AND s.last_call_et > 1800
+    """
+    rows = _fetchall_as_dicts(sql)
+    return int(rows[0].get("TOTAL_INACTIVAS") or 0) if rows else 0
+
+
+def get_cluster_inactive_session_list() -> list[dict[str, Any]]:
+    """Detalle de las sesiones inactivas > 30 min de todos los nodos (GV$), la más antigua primero."""
+    sql = """
+        SELECT s.inst_id                                  AS instancia,
+               s.sid,
+               s.serial#                                  AS serial,
+               s.username                                 AS usuario,
+               s.osuser                                   AS usuario_so,
+               s.machine                                  AS maquina,
+               s.program                                  AS programa,
+               s.module                                   AS modulo,
+               s.last_call_et                             AS inactiva_s,
+               TO_CHAR(s.logon_time, 'YYYY-MM-DD HH24:MI:SS') AS conexion
+        FROM gv$session s
+        WHERE s.status = 'INACTIVE'
+          AND s.last_call_et > 1800
+          AND s.type = 'USER'
+        ORDER BY s.last_call_et DESC
+    """
+    return _fetchall_as_dicts(sql, max_rows=INACTIVE_LIST_MAX_ROWS)
+
+
+# ── Análisis de una SQL concreta (solo DBA en la web) ─────────────────────────
+_PLAN_TABLES_CTE = """
+    with objs as (
+        select object_owner owner, object_name name, object_type from gv$sql_plan
+         where sql_id = :sql_id and object_owner is not null
+        union
+        select object_owner, object_name, object_type from dba_hist_sql_plan
+         where sql_id = :sql_id and dbid = (select dbid from v$database) and object_owner is not null
+    ), tabs as (
+        select owner, name table_name from objs where object_type like 'TABLE%'
+        union
+        select i.table_owner, i.table_name
+          from objs o join dba_indexes i on i.owner = o.owner and i.index_name = o.name
+         where o.object_type like 'INDEX%'
+    )"""
+
+
+def get_sql_cursors(sql_id: str) -> list[dict[str, Any]]:
+    """Cursores en memoria de una SQL_ID en todas las instancias (GV$SQL)."""
+    sql = """
+        select inst_id instancia, child_number hijo, plan_hash_value,
+               parsing_schema_name esquema, module modulo, executions ejecuciones,
+               round(elapsed_time / 1e6, 1) elapsed_s, round(cpu_time / 1e6, 1) cpu_s,
+               buffer_gets lecturas, disk_reads lecturas_disco, rows_processed filas,
+               optimizer_cost coste, sql_profile, sql_plan_baseline,
+               is_bind_sensitive, is_bind_aware, last_active_time ultima_actividad,
+               dbms_lob.substr(sql_fulltext, 2000, 1) sql_texto
+          from gv$sql
+         where sql_id = :sql_id
+         order by last_active_time desc nulls last
+         fetch first 50 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id})
+
+
+def get_sql_plan_history(sql_id: str, days: int = 30) -> list[dict[str, Any]]:
+    """Rendimiento por plan de ejecución en el AWR de los últimos días."""
+    sql = """
+        select st.plan_hash_value,
+               sum(st.executions_delta) ejecuciones,
+               round(sum(st.elapsed_time_delta) / nullif(sum(st.executions_delta), 0) / 1e6, 4) elapsed_s_ejec,
+               round(sum(st.cpu_time_delta) / 1e6 / 3600, 2) cpu_h,
+               round(sum(st.buffer_gets_delta) / nullif(sum(st.executions_delta), 0)) lecturas_ejec,
+               round(sum(st.rows_processed_delta) / nullif(sum(st.executions_delta), 0), 1) filas_ejec,
+               min(sn.begin_interval_time) primera_vez, max(sn.end_interval_time) ultima_vez
+          from dba_hist_sqlstat st
+          join dba_hist_snapshot sn
+            on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+         where st.sql_id = :sql_id
+           and st.dbid = (select dbid from v$database)
+           and sn.begin_interval_time > systimestamp - numtodsinterval(:days, 'DAY')
+         group by st.plan_hash_value
+         order by cpu_h desc nulls last
+         fetch first 20 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "days": days})
+
+
+def get_sql_daily_trend(sql_id: str, days: int = 14) -> list[dict[str, Any]]:
+    """Evolución diaria (AWR) de ejecuciones, tiempo por ejecución y planes usados."""
+    sql = """
+        select trunc(sn.begin_interval_time) dia,
+               sum(st.executions_delta) ejecuciones,
+               round(sum(st.elapsed_time_delta) / nullif(sum(st.executions_delta), 0) / 1e6, 4) elapsed_s_ejec,
+               round(sum(st.cpu_time_delta) / 1e6 / 3600, 2) cpu_h,
+               count(distinct st.plan_hash_value) planes
+          from dba_hist_sqlstat st
+          join dba_hist_snapshot sn
+            on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+         where st.sql_id = :sql_id
+           and st.dbid = (select dbid from v$database)
+           and sn.begin_interval_time > systimestamp - numtodsinterval(:days, 'DAY')
+         group by trunc(sn.begin_interval_time)
+         order by dia"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "days": days})
+
+
+def get_sql_plan_lines(sql_id: str, plan_hash_value: int) -> list[dict[str, Any]]:
+    """Líneas de un plan: de memoria (GV$SQL_PLAN) si está, si no del AWR."""
+    sql = """
+        with mem as (
+            select inst_id, child_number from gv$sql_plan
+             where sql_id = :sql_id and plan_hash_value = :phv and id = 0
+             fetch first 1 rows only
+        )
+        select 'memoria' origen, p.id, p.depth profundidad, p.operation operacion, p.options opciones,
+               p.object_owner propietario, p.object_name objeto, p.cost coste, p.cardinality filas_estimadas,
+               substr(p.access_predicates, 1, 400) acceso, substr(p.filter_predicates, 1, 400) filtro
+          from gv$sql_plan p join mem m on p.inst_id = m.inst_id and p.child_number = m.child_number
+         where p.sql_id = :sql_id and p.plan_hash_value = :phv
+        union all
+        select 'awr', h.id, h.depth, h.operation, h.options, h.object_owner, h.object_name, h.cost, h.cardinality,
+               substr(h.access_predicates, 1, 400), substr(h.filter_predicates, 1, 400)
+          from dba_hist_sql_plan h
+         where h.sql_id = :sql_id and h.plan_hash_value = :phv and h.dbid = (select dbid from v$database)
+           and not exists (select 1 from mem)
+         order by 2
+         fetch first 300 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "phv": plan_hash_value})
+
+
+def get_sql_table_stats(sql_id: str) -> list[dict[str, Any]]:
+    """Estadísticas de las tablas que aparecen en los planes de la SQL."""
+    sql = _PLAN_TABLES_CTE + """
+        select t.owner propietario, t.table_name tabla, s.num_rows filas, s.blocks bloques,
+               s.last_analyzed ultimo_analisis, s.stale_stats obsoletas, s.stattype_locked bloqueadas,
+               (select m.inserts + m.updates + m.deletes from dba_tab_modifications m
+                 where m.table_owner = t.owner and m.table_name = t.table_name and m.partition_name is null
+                   and rownum = 1) modificaciones
+          from tabs t
+          join dba_tab_statistics s
+            on s.owner = t.owner and s.table_name = t.table_name and s.object_type = 'TABLE'
+         order by s.num_rows desc nulls last
+         fetch first 30 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id})
+
+
+def get_sql_table_indexes(sql_id: str) -> list[dict[str, Any]]:
+    """Índices de las tablas que usa la SQL, con sus columnas y estado."""
+    sql = _PLAN_TABLES_CTE + """
+        select i.table_owner propietario, i.table_name tabla, i.index_name indice, i.uniqueness unicidad,
+               i.status estado, i.visibility visibilidad, i.last_analyzed ultimo_analisis,
+               (select listagg(c.column_name, ', ') within group (order by c.column_position)
+                  from dba_ind_columns c where c.index_owner = i.owner and c.index_name = i.index_name) columnas
+          from dba_indexes i
+          join tabs t on i.table_owner = t.owner and i.table_name = t.table_name
+         order by i.table_name, i.index_name
+         fetch first 80 rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id})
+
+
+def get_plsql_child_sqls(sql_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    """SQL que ejecuta por dentro una llamada PL/SQL, según el ASH en memoria (últimas horas)."""
+    sql = """
+        select a.sql_id, count(*) muestras,
+               (select substr(max(s.sql_text), 1, 200) from gv$sql s where s.sql_id = a.sql_id) sql_texto
+          from gv$active_session_history a
+         where a.top_level_sql_id = :sql_id and a.sql_id is not null and a.sql_id <> :sql_id
+         group by a.sql_id
+         order by muestras desc
+         fetch first :limit rows only"""
+    return _fetchall_as_dicts(sql, {"sql_id": sql_id, "limit": limit})
+
+
+# ---- AWR: snapshots y resumen semanal (solo SELECT) ----
+def get_awr_snapshots(days: int = 8) -> list[dict[str, Any]]:
+    """Snapshots AWR de los últimos días por instancia (hora local de la BD)."""
+    sql = """
+        select instance_number instancia, snap_id,
+               to_char(cast(end_interval_time as date), 'YYYY-MM-DD"T"HH24:MI:SS') fin
+          from dba_hist_snapshot
+         where dbid = (select dbid from v$database)
+           and end_interval_time > systimestamp - numtodsinterval(:days, 'DAY')
+         order by instance_number, end_interval_time"""
+    return _fetchall_as_dicts(sql, {"days": days}, max_rows=20000)
+
+
+def get_awr_settings() -> list[dict[str, Any]]:
+    """Frecuencia (minutos) y retención (días) configuradas del AWR."""
+    sql = """
+        select extract(day from snap_interval) * 1440 + extract(hour from snap_interval) * 60
+                 + extract(minute from snap_interval) intervalo_min,
+               extract(day from retention) + extract(hour from retention) / 24 retencion_dias
+          from dba_hist_wr_control
+         where dbid = (select dbid from v$database)"""
+    return _fetchall_as_dicts(sql)
+
+
+def get_weekly_top_sql(start: str, end: str, limit: int = 33) -> list[dict[str, Any]]:
+    """Top de SQL por CPU entre dos fechas (YYYY-MM-DD, fin excluido), agregado desde DBA_HIST_SQLSTAT."""
+    sql = """
+        with base as (
+            select st.sql_id, st.plan_hash_value, st.parsing_schema_name esquema,
+                   trunc(sn.begin_interval_time) dia,
+                   st.cpu_time_delta cpu, st.executions_delta ejec,
+                   st.buffer_gets_delta gets, st.rows_processed_delta filas
+              from dba_hist_sqlstat st
+              join dba_hist_snapshot sn
+                on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+             where st.dbid = (select dbid from v$database)
+               and sn.begin_interval_time >= to_timestamp(:d1, 'YYYY-MM-DD')
+               and sn.begin_interval_time <  to_timestamp(:d2, 'YYYY-MM-DD')
+        ),
+        agg as (
+            select sql_id,
+                   round(sum(cpu) / 1e6 / 3600, 1) cpu_h,
+                   sum(ejec) ejecuciones,
+                   count(distinct dia) dias,
+                   round(sum(gets) / nullif(sum(ejec), 0)) gets_ejec,
+                   round(sum(gets) / nullif(sum(filas), 0)) gets_fila,
+                   count(distinct plan_hash_value) planes,
+                   max(esquema) esquema,
+                   sum(cpu) cpu_us
+              from base group by sql_id
+        )
+        select a.*, round(100 * a.cpu_us / nullif(sum(a.cpu_us) over (), 0), 1) pct_cpu,
+               (select dbms_lob.substr(t.sql_text, 300, 1) from dba_hist_sqltext t
+                 where t.sql_id = a.sql_id and t.dbid = (select dbid from v$database) and rownum = 1) sql_text
+          from agg a
+         order by a.cpu_us desc
+         fetch first :limit rows only"""
+    return _fetchall_as_dicts(sql, {"d1": start, "d2": end, "limit": limit}, timeout_ms=WEEKLY_TIMEOUT_MS)
+
+
+def get_weekly_daily_cpu(start: str, end: str, sql_ids: list[str]) -> list[dict[str, Any]]:
+    """CPU (segundos) por día y SQL_ID para las SQL indicadas."""
+    if not sql_ids:
+        return []
+    binds = {f"s{i}": s for i, s in enumerate(sql_ids)}
+    marks = ", ".join(f":{k}" for k in binds)
+    sql = f"""
+        select st.sql_id, to_char(trunc(sn.begin_interval_time), 'YYYY-MM-DD') dia,
+               round(sum(st.cpu_time_delta) / 1e6) cpu_s
+          from dba_hist_sqlstat st
+          join dba_hist_snapshot sn
+            on sn.snap_id = st.snap_id and sn.dbid = st.dbid and sn.instance_number = st.instance_number
+         where st.dbid = (select dbid from v$database)
+           and st.sql_id in ({marks})
+           and sn.begin_interval_time >= to_timestamp(:d1, 'YYYY-MM-DD')
+           and sn.begin_interval_time <  to_timestamp(:d2, 'YYYY-MM-DD')
+         group by st.sql_id, trunc(sn.begin_interval_time)"""
+    return _fetchall_as_dicts(sql, {**binds, "d1": start, "d2": end}, max_rows=5000,
+                             timeout_ms=WEEKLY_TIMEOUT_MS)

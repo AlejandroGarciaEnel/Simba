@@ -1,0 +1,10 @@
+/* Panel de sesiones dentro de index.html: solo tema y utilidades, sin preflight,
+   para no pisar styles.css. Los layers quedan por debajo de los estilos sin capa. */
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../index.html";
+@source "../sessions-dash.js";
+@source "../estado-plus.js";
+@source "../awr.js";
+@source "../js/*.js";

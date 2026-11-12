@@ -30,12 +30,20 @@ uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 
 ### 3. Acceder a la interfaz
 
-Abre tu navegador en: **http://localhost:8000**
+Abre tu navegador en: **http://localhost:8000** e inicia sesión. El primer administrador se crea con
+`python -m interface.backend.auth crear-usuario <usuario> --rol administrador` (desde la raíz del proyecto).
 
 ---
 
 ## 📋 Características
 
+✅ **Login y roles** — Consulta, DBA y Administrador (ver README principal)  
+✅ **Panel de estado** — Revisión sin IA, agrupada por área, con sugerencias y responsable  
+✅ **Queries** — Recomendaciones sobre el informe semanal de SQL costosas y su seguimiento (`GET /api/query-improvements`)  
+✅ **Histórico** — Quién consultó, cuándo y qué estado se devolvió  
+✅ **Detalle técnico** — Datos en bruto de cada comprobación (DBA)  
+✅ **Gestión de usuarios** — Alta, rol, activación y contraseña (Administrador)  
+✅ **Asistente opcional** — Panel lateral con el agente; solo se usa cuando se necesita  
 ✅ **Chat conversacional** — Interfaz estilo Gemini con historial  
 ✅ **Dark mode** — Tema oscuro/claro persistente en navegador  
 ✅ **Markdown rendering** — Soporte para formato de texto enriquecido  
@@ -57,7 +65,7 @@ Abre tu navegador en: **http://localhost:8000**
 │  Frontend (HTML + CSS + Vanilla JS)  │
 │  - index.html → estructura           │
 │  - styles.css → estilos              │
-│  - app.js → lógica interactiva       │
+│  - js/*.js → lógica interactiva      │
 └────────────┬────────────────────────┘
              │ HTTP (fetch)
              ▼
@@ -220,7 +228,8 @@ interface/
 └── frontend/
     ├── index.html
     ├── styles.css
-    └── app.js
+    ├── js/            (core, live, estado, queries, history-users, assistant, main)
+    └── tailwind/      (fuentes de vendor/tailwind-*.css → `npm run build:css`)
 ```
 
 ### Modificar estilos
@@ -233,7 +242,7 @@ interface/
 
 - **Nuevos endpoints**: Editar `backend/main.py`
 - **Lógica de chat**: Modificar `api_handlers.py` (ChatHandler)
-- **UI**: Actualizar `index.html` y `app.js`
+- **UI**: Actualizar `index.html` y el módulo correspondiente de `js/` (scripts clásicos; respetar el orden de carga). Si se usan clases nuevas de Tailwind, ejecutar `npm run build:css`
 
 ---
 

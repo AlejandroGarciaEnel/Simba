@@ -235,7 +235,7 @@ def test_download_report_rejects_awr_followup_prefix(api_client):
     assert api_client.get("/api/download-report/awr_followup_x.html").status_code == 400
 
 
-def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):
+def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch, login_as):
     """Integración real (sin mockear initialize_agent): arranca con el LLM caído,
     /api/chat debe dar 503 hasta que /api/reset-connection lo repare, y luego funcionar."""
     from interface.backend import main as main_module
@@ -259,6 +259,7 @@ def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):
     monkeypatch.setattr(main_module.chat_handler, "sessions", SessionStore())
 
     with TestClient(main_module.app) as client:
+        login_as(client)
         # Arranque: BD ok, LLM caído -> /api/chat debe fallar con 503
         assert main_module.chat_handler.db_connected is True
         assert main_module.chat_handler.llm_ready is False
@@ -279,3 +280,30 @@ def test_chat_recovers_after_reset_connection_fixes_llm(monkeypatch):
 
         health_response = client.get("/api/health")
         assert health_response.json()["message"] == "Servidor activo"
+
+
+def test_events_stream_sends_status_and_notifications(api_client, monkeypatch):
+    import query_reports.board_store as board_store
+    from interface.backend import main as main_module
+
+    monkeypatch.setattr(main_module, "SSE_INTERVAL", 0.01)
+    monkeypatch.setattr(main_module, "SSE_MAX_SECONDS", 0.05)
+    monkeypatch.setattr(board_store, "notifications_for", lambda username: {"items": [], "unread": 0})
+
+    with api_client.stream("GET", "/api/events") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(response.iter_text())
+
+    assert body.startswith("retry: 5000")
+    assert body.count("event: status") >= 2
+    assert body.count("event: notifications") == 1  # solo se reenvían si cambian
+    assert '"db_connected": true' in body
+
+
+def test_events_stream_requires_session():
+    from fastapi.testclient import TestClient
+    from interface.backend import main as main_module
+
+    with TestClient(main_module.app) as client:
+        assert client.get("/api/events").status_code == 401

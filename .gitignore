@@ -13,6 +13,9 @@ reports/dbCheck_*.html
 awr/*.html
 awr/*.htm
 
+# Histórico local de revisiones de estado
+data/
+
 # Entornos virtuales
 .venv/
 venv/
@@ -23,4 +26,7 @@ env/
 .idea/
 
 # Copilot Starter Kit
-.github/
+.github/node_modules/
+
+# Dependencias de Node (npm run build:css / npm test)
+node_modules/

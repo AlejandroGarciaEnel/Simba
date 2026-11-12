@@ -180,6 +180,49 @@ http://127.0.0.1:8000
 
 El frontend se sirve desde la carpeta interface/frontend y el backend está en interface/backend.
 
+### Acceso por roles
+
+La web exige iniciar sesión. Los usuarios se guardan en `data/users.json` (ignorado por git, contraseñas
+con hash PBKDF2-SHA256). El primer administrador se crea desde consola:
+
+```bash
+python -m interface.backend.auth crear-usuario mario --rol administrador
+```
+
+| Rol | Puede |
+|---|---|
+| `consulta` | Ver el panel de estado, el histórico y usar el asistente |
+| `dba` | Además: forzar una revisión nueva, ver el detalle técnico, subir AWR y reiniciar la conexión |
+| `administrador` | Además: gestionar usuarios desde la pestaña *Usuarios* |
+
+El panel de estado no usa IA (revisión determinista con caché). El asistente es un panel lateral opcional
+que solo consume LLM cuando el usuario le pregunta. Variables: `SIMBA_USERS_FILE`, `SIMBA_SESSION_HOURS`
+(8 por defecto) y `SIMBA_COOKIE_SECURE` (activar con HTTPS). Tras 5 intentos fallidos el usuario queda
+bloqueado 5 minutos.
+
+Si hay bloqueos, la tarjeta *Bloqueos* lista **todas** las sesiones bloqueantes raíz (instancia, SID/serial,
+usuario, máquina, programa, estado, a cuántas bloquea, objeto y SQL), y el asistente las enumera.
+
+### Mejoras de queries (informe semanal)
+
+La pestaña *Queries* y la herramienta del asistente `get_query_improvement_recommendations` leen, solo en
+lectura, los Excel del informe semanal de SQL más costosas y la hoja *Seguimiento* del proyecto de mejoras.
+Sin IA, señalan: SQL nuevas en el top sin seguimiento, completadas que siguen en el top tras una semana
+completa, mejoras estancadas (4+ semanas), completadas sin medir o que empeoran, y pistas técnicas (varios
+planes, muchas lecturas por fila, exceso de ejecuciones, PL/SQL, batch pesado). Los textos están en
+`query_reports/recommendations.json` para que el DBA los revise. Variables: `SIMBA_QUERY_REPORTS_DIR`
+(carpeta con `PRAGU4E_Informe_Semana_*.xlsx`) y `SIMBA_QUERY_TRACKING_FILE` (opcional, `PRAGU4E_Seguimiento.xlsx`).
+
+### Modo presentación
+
+El botón con el ojo (junto al tema, en la barra lateral) activa el *modo presentación* para enseñar SIMBA o
+hacer capturas sin datos reales. Todo ocurre en el navegador (`interface/frontend/js/present.js`), también en
+`/inactivas`: personas, usuarios, esquemas, usuarios de SO, máquinas, tablespaces y objetos se sustituyen por
+seudónimos estables (`Persona A`, `ESQUEMA_01`, `equipo-01`, `TS_DATOS_01`…), el texto SQL conserva su
+estructura pero oculta identificadores y literales, y las notas del seguimiento se ocultan. Los seudónimos se
+traducen de vuelta al hacer peticiones (filtros, descargas, preguntas al asistente); mientras está activo no
+se pueden guardar notas del tablero. Al activarlo se vacía el historial del asistente guardado en el navegador.
+
 ---
 
 ## 6. Estructura del proyecto
@@ -217,7 +260,7 @@ dbAgent/
 │   │   ├── api_handlers.py
 │   │   └── main.py
 │   └── frontend/
-│       ├── app.js
+│       ├── js/
 │       ├── index.html
 │       └── styles.css
 ├── report/
@@ -278,6 +321,11 @@ El backend FastAPI expone endpoints como:
 - POST /api/awr/upload
 - GET /api/chat-history
 - POST /api/clear-history
+- POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me
+- POST /api/health-check, GET /api/health-history, GET /api/health-check/{id}/detail (dba)
+- GET/POST /api/users, PATCH/DELETE /api/users/{username} (administrador)
+
+Todos los endpoints salvo el login requieren sesión (cookie `simba_session`).
 
 Más detalles en interface/backend/main.py y interface/backend/api_handlers.py.
 
@@ -288,7 +336,28 @@ Notas importantes:
 
 ---
 
-## 9. Informes HTML
+## 9. Revisión de estado (RF022)
+
+`health/checker.py` ejecuta una revisión única sin LLM (CPU, bloqueos con causa probable, límites de
+conexiones, tablespaces/TEMP/UNDO, sesiones inactivas, problemas de Oracle registrados en el ADR, esperas y operaciones
+largas), aplica reglas de DBA y guarda el resultado en ficheros JSON Lines (`data/health/checks.jsonl` y
+`data/health/requests.jsonl`, ignorados por git; no se usa ninguna base de datos).
+
+- Caché: se reutiliza la última revisión durante `SIMBA_HEALTH_CACHE_MINUTES` (10 por defecto).
+- Histórico: cada pregunta queda registrada con su fecha, quién preguntó y la revisión devuelta.
+- API: `POST /api/health-check?force=true|false` y `GET /api/health-history?limit=20`.
+- Algunas comprobaciones requieren permisos (`DBA_TABLESPACE_USAGE_METRICS`, `V$DIAG_PROBLEM`); si
+  faltan, se marcan como "No disponible" sin abortar la revisión.
+- Errores: se usa `V$DIAG_PROBLEM` (instancia conectada) en lugar de `V$DIAG_ALERT_EXT`, que lee el alert
+  log completo y tardaba más de un minuto. Un problema aparecido en el último día se marca como nuevo; uno
+  que se repite desde hace tiempo se informa como conocido.
+- El bot nunca ejecuta acciones sobre la BD: solo sugiere. Las recomendaciones viven en
+  `health/recommendations.json` (plantilla pendiente de revisión por el DBA; se edita sin tocar código) y
+  cada revisión recuerda que el equipo funcional debe verificarlas antes de actuar.
+
+---
+
+## 10. Informes HTML
 
 El generador de informes se encuentra en report/generator.py.
 
@@ -345,6 +414,14 @@ Las pruebas cubren:
 - tests de report generation
 - tests de API
 
+Frontal (helpers de `interface/frontend/js/`, requiere Node 20+):
+
+```powershell
+npm install
+npm test            # node --test tests/frontend/
+npm run build:css   # regenera vendor/tailwind-*.css tras usar clases nuevas de Tailwind
+```
+
 No hace falta Oracle real ni un LLM real para ejecutar la suite principal.
 
 ---
@@ -388,8 +465,8 @@ No hace falta Oracle real ni un LLM real para ejecutar la suite principal.
 Este proyecto no pretende ser una capa de seguridad de producción por defecto. El enfoque actual es operativo y local.
 
 Riesgos actuales documentados en código:
-- CORS abierto por defecto
-- ausencia de autenticación/autorización en la API
+- CORS abierto por defecto (mitigado por la cookie de sesión SameSite=strict)
+- autenticación local básica: usuarios en fichero JSON y sesiones en memoria (se pierden al reiniciar)
 - uso local del backend y del frontend
 - exposición de errores internos en endpoints de estado
 - conexión Oracle y agente LLM con reintentos independientes
@@ -397,7 +474,7 @@ Riesgos actuales documentados en código:
 
 Antes de cualquier despliegue real, sería necesario:
 - restringir CORS a orígenes concretos
-- proteger la API con autenticación
+- integrar la autenticación con el directorio corporativo (LDAP/SSO) y servir por HTTPS
 - controlar quién puede acceder al puerto de la aplicación
 - revisar regímenes de secretos y entorno
 - valorar si la aplicación requiere aislamiento multiusuario
@@ -423,3 +500,8 @@ La parte más relevante del sistema está en:
 - report/generator.py para reportes HTML
 - report/awr_analyzer.py para el análisis de informes AWR
 
+
+### Seguimiento de queries: tablero, lista y análisis DBA
+
+- La pestaña **Queries** ofrece tres vistas del seguimiento semanal: **Tablero** (columnas por estado, estilo Jira), **Lista** (tabla ordenable) y **Recomendaciones**. El tablero es de solo lectura: el Excel de seguimiento sigue siendo la fuente.
+- Rol **dba** o superior: `GET /api/sql-analysis/{sql_id}` y la herramienta del agente `analyze_sql_performance` analizan una SQL en la BD (solo SELECT). Revisan los cursores, los planes AWR de 30 días, la tendencia de 14 días, las estadísticas, los índices, los baselines y las SQL hijas de PL/SQL. Con esos datos generan recomendaciones que el equipo funcional debe verificar.

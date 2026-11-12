@@ -1,0 +1,75 @@
+{
+  "_nota": "Plantilla pendiente de revisión por el DBA. Las recomendaciones son sugerencias: SIMBA nunca ejecuta acciones. Cualquier actuación debe verificarla antes el equipo funcional. Editar solo los campos accion, urgencia y responsable; no cambiar las claves.",
+  "bloqueo_transaccion_abierta": {
+    "accion": "Probable transacción sin commit: identificar al propietario de la sesión bloqueante (usuario, programa y máquina indicados) y pedirle que confirme o deshaga la transacción. Valorar terminar la sesión solo como último recurso.",
+    "urgencia": "Alta si la espera supera los 5 minutos",
+    "responsable": "DBA + equipo de la aplicación",
+    "revisado_por_dba": false
+  },
+  "bloqueo_en_ejecucion": {
+    "accion": "El bloqueante sigue ejecutando: revisar su SQL (SQL ID) y su avance antes de actuar; puede terminar por sí solo.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "bloqueo_corto": {
+    "accion": "Un bloqueo de pocos segundos es normal. Volver a revisar pasados unos minutos; si persiste, tratarlo como bloqueo prolongado.",
+    "urgencia": "Baja",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "cpu_alta": {
+    "accion": "Revisar las consultas y sesiones con más CPU. Una CPU alta suele ser consecuencia de un SQL costoso o de un cambio de plan, no la causa.",
+    "urgencia": "Alta si se mantiene por encima del umbral crítico",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "conexiones_cerca_limite": {
+    "accion": "Riesgo de ORA-00020 (sin sesiones o procesos disponibles). Revisar sesiones inactivas, configuración de los pools de conexiones y picos recientes de conexión.",
+    "urgencia": "Alta",
+    "responsable": "DBA + equipo de la aplicación",
+    "revisado_por_dba": false
+  },
+  "espacio_tablespace": {
+    "accion": "Planificar ampliación de datafiles o purga/archivado de datos. Al llegar al 100 % fallan las inserciones en ese tablespace.",
+    "urgencia": "Según el porcentaje y el ritmo de crecimiento",
+    "responsable": "DBA + equipo funcional (qué datos se pueden purgar)",
+    "revisado_por_dba": false
+  },
+  "espacio_temp": {
+    "accion": "Identificar las sesiones o consultas que consumen TEMP (ordenaciones, joins, hash grandes) antes de ampliar el tablespace temporal.",
+    "urgencia": "Alta: puede provocar ORA-01652",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "espacio_undo": {
+    "accion": "Revisar transacciones largas y la retención de UNDO. Ampliar solo si la carga es legítima.",
+    "urgencia": "Alta: puede provocar ORA-01555 o ORA-30036",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "sesiones_inactivas": {
+    "accion": "Posibles conexiones huérfanas o pooling mal configurado. Revisar con las aplicaciones propietarias el tamaño y la caducidad de sus pools; valorar límites de inactividad en los perfiles.",
+    "urgencia": "Media",
+    "responsable": "DBA + equipo de la aplicación",
+    "revisado_por_dba": false
+  },
+  "errores_ora": {
+    "accion": "Revisar el mensaje completo en el alert log y localizar la sesión o aplicación afectada.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "errores_ora_recurrentes": {
+    "accion": "Problema que Oracle ya registraba antes: comprobar si hay incidencia de soporte abierta y si su frecuencia ha cambiado o coincide en el tiempo con los fallos reportados.",
+    "urgencia": "Media",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  },
+  "errores_ora_graves": {
+    "accion": "Error interno o de memoria (p. ej. ORA-00600, ORA-07445, ORA-04031): abrir incidencia de soporte de inmediato con el alert log y los ficheros de traza.",
+    "urgencia": "Crítica",
+    "responsable": "DBA",
+    "revisado_por_dba": false
+  }
+}
