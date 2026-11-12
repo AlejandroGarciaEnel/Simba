@@ -33,6 +33,12 @@ _LEVEL = {role: i for i, role in enumerate(ROLES)}
 DEFAULT_USERS_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "users.json"
 PBKDF2_ITERATIONS = 600_000
 MIN_PASSWORD_LENGTH = 10
+PASSPHRASE_LENGTH = 16  # a partir de esta longitud no se exige mezclar tipos de carácter
+COMMON_PASSWORDS = frozenset({
+    "password", "password1", "password123", "contrasena", "contraseña", "qwerty", "qwertyuiop", "123456789",
+    "1234567890", "12345678910", "abc123456", "iloveyou", "admin1234", "administrador", "bienvenido",
+    "bienvenido1", "oracle123", "oracle1234", "simba12345", "changeme", "letmein123", "passw0rd", "p@ssw0rd",
+})
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{3,40}$")
 
 MAX_FAILED_LOGINS = 5
@@ -73,9 +79,27 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(digest.hex(), expected)
 
 
-def _validate_password(password: str) -> None:
-    if len(password or "") < MIN_PASSWORD_LENGTH:
-        raise AuthError(f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.")
+def password_problems(password: str, username: str = "") -> list[str]:
+    """Motivos por los que una contraseña no cumple la política (lista vacía si es válida)."""
+    password = password or ""
+    problems = []
+    if len(password) < MIN_PASSWORD_LENGTH:
+        problems.append(f"debe tener al menos {MIN_PASSWORD_LENGTH} caracteres")
+    classes = sum(bool(re.search(rx, password)) for rx in (r"[a-z]", r"[A-Z]", r"\d", r"[^a-zA-Z0-9]"))
+    if len(password) < PASSPHRASE_LENGTH and classes < 3:
+        problems.append("debe combinar al menos 3 tipos de carácter (minúsculas, mayúsculas, números, símbolos) "
+                        f"o tener {PASSPHRASE_LENGTH} caracteres o más")
+    if username and len(username) >= 3 and username.lower() in password.lower():
+        problems.append("no puede contener el nombre de usuario")
+    if password.lower() in COMMON_PASSWORDS or len(set(password)) <= 2:
+        problems.append("es demasiado común o predecible")
+    return problems
+
+
+def _validate_password(password: str, username: str = "") -> None:
+    problems = password_problems(password, username)
+    if problems:
+        raise AuthError("La contraseña " + "; ".join(problems) + ".")
 
 
 def _validate_role(role: str) -> None:
@@ -149,7 +173,7 @@ class UserStore:
         if not USERNAME_RE.match(username or ""):
             raise AuthError("Usuario no válido: 3-40 caracteres (letras, números, punto, guion o guion bajo).")
         _validate_role(role)
-        _validate_password(password)
+        _validate_password(password, username)
         with self._lock:
             users = self._load()
             if username in users:
@@ -167,7 +191,7 @@ class UserStore:
         if role is not None:
             _validate_role(role)
         if password is not None:
-            _validate_password(password)
+            _validate_password(password, username)
         with self._lock:
             users = self._load()
             user = users.get(username)
@@ -214,8 +238,19 @@ class SessionManager:
         token = secrets.token_urlsafe(32)
         with self._lock:
             self._purge()
-            self._sessions[token] = {"username": username, "expires": time.time() + session_ttl_seconds()}
+            self._sessions[token] = {"username": username, "expires": time.time() + session_ttl_seconds(),
+                                     "csrf": secrets.token_urlsafe(32)}
         return token
+
+    def csrf_for(self, token: str | None) -> Optional[str]:
+        """Token anti-CSRF ligado a la sesión (None si la sesión no existe o ha caducado)."""
+        if not token:
+            return None
+        with self._lock:
+            session = self._sessions.get(token)
+            if not session or session["expires"] < time.time():
+                return None
+            return session["csrf"]
 
     def username_for(self, token: str | None) -> Optional[str]:
         if not token:

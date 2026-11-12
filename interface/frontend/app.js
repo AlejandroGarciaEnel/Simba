@@ -124,6 +124,7 @@ function sevPill(sev) {
 
 async function api(path, { method = "GET", body, headers = {}, raw = false } = {}) {
     const opts = { method, headers: { ...headers }, credentials: "same-origin" };
+    if (method !== "GET" && state.user?.csrf) opts.headers["X-CSRF-Token"] = state.user.csrf;
     if (body instanceof FormData) opts.body = body;
     else if (body !== undefined) {
         opts.headers["Content-Type"] = "application/json";
@@ -1258,14 +1259,37 @@ async function updateUser(username, changes) {
     loadUsers();
 }
 
+// Misma política que interface/backend/auth.py (password_problems); el servidor es quien decide.
+const PASSWORD_HINT = "Mínimo 10 caracteres combinando 3 tipos (minúsculas, mayúsculas, números, símbolos), o una frase de 16 o más. Sin el nombre de usuario.";
+const COMMON_PASSWORDS = new Set(["password", "password1", "password123", "contrasena", "contraseña", "qwerty", "qwertyuiop", "123456789",
+    "1234567890", "12345678910", "abc123456", "iloveyou", "admin1234", "administrador", "bienvenido", "bienvenido1", "oracle123",
+    "oracle1234", "simba12345", "changeme", "letmein123", "passw0rd", "p@ssw0rd"]);
+
+function passwordProblems(password = "", username = "") {
+    const problems = [];
+    if (password.length < 10) problems.push("debe tener al menos 10 caracteres");
+    const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^a-zA-Z0-9]/].filter((rx) => rx.test(password)).length;
+    if (password.length < 16 && classes < 3) problems.push("debe combinar al menos 3 tipos de carácter o tener 16 caracteres o más");
+    if (username.length >= 3 && password.toLowerCase().includes(username.toLowerCase())) problems.push("no puede contener el nombre de usuario");
+    if (COMMON_PASSWORDS.has(password.toLowerCase()) || new Set(password).size <= 2) problems.push("es demasiado común o predecible");
+    return problems;
+}
+
+function checkPassword(password, username) {
+    const problems = passwordProblems(password, username);
+    if (problems.length) toast(`La contraseña ${problems.join("; ")}.`, "error");
+    return !problems.length;
+}
+
 async function resetPassword(username) {
     const res = await uiDialog({
-        title: `Cambiar contraseña de ${username}`, message: "Mínimo 10 caracteres.", ok: "Guardar",
+        title: `Cambiar contraseña de ${username}`, message: PASSWORD_HINT, ok: "Guardar",
         fields: [{ name: "p1", label: "Nueva contraseña", type: "password", minlength: 10 },
                  { name: "p2", label: "Repite la contraseña", type: "password", minlength: 10 }],
     });
     if (!res) return;
     if (res.p1 !== res.p2) return toast("Las contraseñas no coinciden", "error");
+    if (!checkPassword(res.p1, username)) return;
     updateUser(username, { password: res.p1 });
 }
 
@@ -1282,6 +1306,7 @@ async function deleteUser(username) {
 
 async function createUser(e) {
     e.preventDefault();
+    if (!checkPassword($("nu-password").value, $("nu-username").value.trim())) return;
     try {
         await api("/users", { method: "POST", body: {
             username: $("nu-username").value.trim(), password: $("nu-password").value, role: $("nu-role").value } });

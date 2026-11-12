@@ -61,6 +61,7 @@ def login_as(web_users):
     def _login(client, role: str = "administrador") -> None:
         response = client.post("/api/auth/login", json={"username": f"user_{role}", "password": TEST_PASSWORD})
         assert response.status_code == 200, response.text
+        client.headers["X-CSRF-Token"] = response.json()["csrf"]
     return _login
 
 

@@ -257,13 +257,14 @@
                     <form class="panel inline-form new-user" id="new-user-form">
                         <span class="new-user-title"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg>Nuevo usuario</span>
                         <input id="nu-username" placeholder="Usuario" aria-label="Usuario" autocomplete="off" required>
-                        <input id="nu-password" type="password" placeholder="Contraseña (mín. 10)" aria-label="Contraseña" autocomplete="new-password" minlength="10" required>
+                        <input id="nu-password" type="password" placeholder="Contraseña segura" aria-label="Contraseña" aria-describedby="nu-password-hint" autocomplete="new-password" minlength="10" required>
                         <select id="nu-role" aria-label="Rol">
                             <option value="consulta">Consulta</option>
                             <option value="dba">DBA</option>
                             <option value="administrador">Administrador</option>
                         </select>
                         <button class="btn btn-primary" type="submit">Crear usuario</button>
+                        <small class="muted new-user-hint" id="nu-password-hint">Contraseña: mínimo 10 caracteres combinando 3 tipos (minúsculas, mayúsculas, números, símbolos) o una frase de 16 o más, sin el nombre de usuario.</small>
                     </form>
                     <div class="table-wrap">
                         <table class="table" id="users-table">

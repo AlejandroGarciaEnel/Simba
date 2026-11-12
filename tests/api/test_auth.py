@@ -52,12 +52,12 @@ def test_dba_can_force_but_cannot_manage_users(client, login_as):
 
 def test_admin_manages_users_and_changes_apply_immediately(client, login_as):
     login_as(client, "administrador")
-    r = client.post("/api/users", json={"username": "ana", "password": "una-clave-larga", "role": "consulta"})
+    r = client.post("/api/users", json={"username": "ana", "password": "Una-clave-2024", "role": "consulta"})
     assert r.status_code == 201
     assert "password_hash" not in r.json()
 
     other = TestClient(client.app)
-    other.post("/api/auth/login", json={"username": "ana", "password": "una-clave-larga"})
+    other.post("/api/auth/login", json={"username": "ana", "password": "Una-clave-2024"})
     assert other.get("/api/auth/me").json()["role"] == "consulta"
 
     client.patch("/api/users/ana", json={"role": "dba"})
@@ -83,3 +83,28 @@ def test_last_active_admin_cannot_be_removed_or_demoted(web_users):
 def test_short_password_is_rejected(web_users):
     with pytest.raises(AuthError):
         web_users.create("corta", "123", "consulta")
+
+
+def test_unsafe_requests_need_the_session_csrf_token(client, login_as):
+    login_as(client, "dba")
+    token = client.headers.pop("X-CSRF-Token")
+    assert client.post("/api/health-check").status_code == 403
+    assert client.post("/api/health-check", headers={"X-CSRF-Token": "otro"}).status_code == 403
+    assert client.post("/api/health-check", headers={"X-CSRF-Token": token}).status_code == 200
+    assert client.get("/api/auth/me").json()["csrf"] == token
+
+
+@pytest.mark.parametrize("password", [
+    "solominusculas",          # una sola clase y corta
+    "Clave-user_dba-2024",     # contiene el usuario
+    "Password123",             # demasiado común
+    "aaaaaaaaaaaaaaaaaaaa",    # predecible
+])
+def test_weak_passwords_are_rejected(web_users, password):
+    with pytest.raises(AuthError):
+        web_users.update("user_dba", password=password)
+
+
+@pytest.mark.parametrize("password", ["Clave-2024x", "frase larga de varias palabras"])
+def test_strong_passwords_and_passphrases_are_accepted(web_users, password):
+    web_users.update("user_dba", password=password)

@@ -3,6 +3,7 @@ Servidor FastAPI que expone el agente Oracle a través de REST API.
 Interfaz de comunicación entre frontend y agente LangChain.
 """
 import asyncio
+import hmac
 import os
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Response, UploadFile, File, Request, Depends
 from fastapi.concurrency import run_in_threadpool
@@ -40,17 +41,32 @@ def _get_cors_origins() -> List[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
-# CORS
+# CORS: con "*" no se permiten credenciales (el navegador nunca enviará la cookie de sesión a otro origen).
+_CORS_ORIGINS = _get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_get_cors_origins(),
-    allow_credentials=True,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=_CORS_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Session-Id"],
 )
 
 AWR_UPLOAD_PATH = "/api/awr/upload"
+CSRF_HEADER = "X-CSRF-Token"
+CSRF_EXEMPT = {"/api/auth/login"}
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def csrf_protect(request, call_next):
+    # Token sincronizado por sesión: solo se exige si hay sesión válida (sin sesión, el endpoint ya responde 401).
+    if request.method in UNSAFE_METHODS and request.url.path.startswith("/api/") and request.url.path not in CSRF_EXEMPT:
+        expected = login_sessions.csrf_for(request.cookies.get(AUTH_COOKIE))
+        sent = request.headers.get(CSRF_HEADER, "")
+        if expected and not hmac.compare_digest(sent.encode(), expected.encode()):
+            return JSONResponse(status_code=403, content={"detail": "Falta o no es válido el token CSRF. Recarga la página."})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -250,7 +266,7 @@ async def login(payload: LoginRequest, response: Response):
     response.set_cookie(AUTH_COOKIE, token, max_age=session_ttl_seconds(), httponly=True,
                         samesite="strict", secure=_cookie_secure())
     logger.info("login user=%s role=%s", user["username"], user["role"])
-    return {"username": user["username"], "role": user["role"]}
+    return {"username": user["username"], "role": user["role"], "csrf": login_sessions.csrf_for(token)}
 
 
 @app.post("/api/auth/logout")
@@ -261,8 +277,8 @@ async def logout(request: Request, response: Response):
 
 
 @app.get("/api/auth/me")
-async def me(user: Dict[str, str] = Depends(current_user)):
-    return user
+async def me(request: Request, user: Dict[str, str] = Depends(current_user)):
+    return {**user, "csrf": login_sessions.csrf_for(request.cookies.get(AUTH_COOKIE))}
 
 
 # Gestión de usuarios (administrador)

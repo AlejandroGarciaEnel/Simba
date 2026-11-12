@@ -857,6 +857,7 @@ body.dark .tk-num { color: #7dd3fc; }
 .new-user-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; margin-right: 6px; }
 .new-user-title .ico { color: var(--primary); }
 .new-user input { min-width: 200px; flex: 1 1 200px; }
+.new-user-hint { flex-basis: 100%; font-size: 12px; }
 #users-table td:first-child { font-weight: 600; }
 
 /* ========== Sesiones (el resto usa Tailwind) ========== */
