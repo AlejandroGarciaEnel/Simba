@@ -14,13 +14,17 @@ const AwrView = (() => {
         grid.append(el("span"));
         for (let h = 0; h < 24; h++) grid.append(el("span", { class: "hh", text: h % 3 === 0 ? String(h) : "" }));
         grid.append(el("span"));
+        // Las horas de hoy que aún no han llegado no cuentan como "faltan": se muestran como pendientes.
+        const now = new Date(), todayIso = now.toLocaleDateString("sv-SE"), nowHour = now.getHours();
         for (const day of d.days) {
             grid.append(el("span", { class: "dl", text: `${day.weekday} ${day.date.slice(8)}` }));
             for (let h = 0; h < 24; h++) {
                 const n = day.hours[h];
                 const inside = day.laborable && h >= d.work_start && h < d.work_end;
-                const miss = inside && n === 0 && day.status !== "pending" && day.status !== "off";
-                grid.append(el("span", { class: `awr-cell${n ? " has" : ""}${n > 1 ? " many" : ""}${miss ? " miss" : ""}${inside ? "" : " out"}`,
+                const future = day.date === todayIso && h >= nowHour;
+                const miss = inside && n === 0 && !future && day.status !== "pending" && day.status !== "off";
+                const pend = inside && n === 0 && future;
+                grid.append(el("span", { class: `awr-cell${n ? " has" : ""}${n > 1 ? " many" : ""}${miss ? " miss" : ""}${pend ? " pending" : ""}${inside ? "" : " out"}`,
                     title: `${day.date} ${String(h).padStart(2, "0")}:00 · ${n} snapshot(s)` }));
             }
             grid.append(el("span", { class: `awr-day-badge ${day.status}`, text: label[day.status] || day.status, title: day.message }));
@@ -44,6 +48,7 @@ const AwrView = (() => {
             card.append(el("div", { class: "awr-legend" },
                 el("span", {}, el("i", { style: "background:var(--ok)" }), "Snapshot guardado"),
                 el("span", {}, el("i", { style: "background:color-mix(in srgb, var(--crit) 55%, transparent)" }), "Hueco en horario laboral"),
+                el("span", {}, el("i", { class: "awr-cell pending", style: "height:11px" }), "Aún no ha llegado la hora"),
                 el("span", {}, el("i", { style: "background:var(--surface-2)" }), "Fuera de horario / sin dato")));
             const gaps = snap.days.filter((x) => (x.instances || []).some((i) => i.status !== "ok"));
             if (gaps.length) {
@@ -67,7 +72,7 @@ const AwrView = (() => {
             const btn = el("button", { class: "btn btn-primary btn-small", text: "Generar ahora (semana en curso)" });
             btn.addEventListener("click", async () => {
                 btn.disabled = true;
-                try { await api("/awr/weekly/generate", { method: "POST" }); } catch (e) { alert(e.message); }
+                try { await api("/awr/weekly/generate", { method: "POST" }); } catch (e) { toast(e.message, "error"); }
                 load();
             });
             card.append(btn);
@@ -77,7 +82,7 @@ const AwrView = (() => {
                     const dl = el("button", { class: "btn btn-small", text: "Descargar" });
                     dl.addEventListener("click", async () => {
                         const res = await api(`/awr/weekly/download?name=${encodeURIComponent(f.name)}`, { raw: true });
-                        if (!res.ok) { alert("No se pudo descargar."); return; }
+                        if (!res.ok) { toast("No se pudo descargar.", "error"); return; }
                         const url = URL.createObjectURL(await res.blob());
                         const a = el("a", { href: url, download: f.name });
                         document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);

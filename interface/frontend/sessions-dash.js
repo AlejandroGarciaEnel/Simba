@@ -64,7 +64,9 @@ const SessionsDash = (() => {
         if (r >= 1.15) return { cls: "warn", med, pct, label: "Por encima" };
         return { cls: "info", med, pct, label: "Habitual" };
     }
-    const PANEL = "rounded-2xl bg-gradient-to-br from-slate-800/90 to-slate-900/90 ring-1 ring-white/10 shadow-xl backdrop-blur p-4 min-w-0";
+    // Superficie común (estilos en styles.css con los tokens del tema).
+    const PANEL = "sd-panel p-4 min-w-0";
+    const ico = (name) => svg("svg", { class: "ico", "aria-hidden": "true" }, svg("use", { href: `#i-${name}` }));
 
     function sparkline(key, tone) {
         const data = points.map((p) => p[key]);
@@ -86,10 +88,10 @@ const SessionsDash = (() => {
 
     function stat(title, icon, value, unit, cls, key, hint, label) {
         const tone = TONE[cls];
-        return el("section", { class: `${PANEL.replace("p-4", "p-3")} ring-1 ${tone.ring} shadow-lg ${tone.glow} transition hover:-translate-y-0.5` },
+        return el("section", { class: `sd-panel sd-stat sd-${cls} p-4 min-w-0` },
             el("div", { class: "flex items-center justify-between" },
-                el("h4", { class: "text-xs font-medium uppercase tracking-wider text-slate-400", text: title }),
-                el("span", { class: "text-lg", text: icon })),
+                el("h4", { class: "text-xs font-semibold uppercase tracking-wider text-slate-400", text: title }),
+                el("span", { class: "sd-stat-ico" }, ico(icon))),
             el("div", { class: `mt-1 flex items-baseline gap-1 text-3xl font-semibold tabular-nums ${tone.text}` },
                 Number(value).toLocaleString("es-ES"), unit ? el("small", { class: "text-lg font-normal text-slate-500", text: unit }) : null),
             el("div", { class: "mt-1 flex items-center justify-between text-xs text-slate-500" },
@@ -112,7 +114,9 @@ const SessionsDash = (() => {
         win.from = from; win.to = from + span;
     };
     const RANGES = [["1 h", 3600e3], ["4 h", 4 * 3600e3], ["8 h", 8 * 3600e3], ["Jornada", "day"], ["Todo", null]];
+    let rangeSel = null; // botón de rango activo; undefined = ventana personalizada (zoom/arrastre)
     function applyRange(v) {
+        rangeSel = v;
         const [, b] = fullRange();
         if (v == null) win.from = win.to = null;
         else if (v === "day") { const d = new Date(b); d.setHours(0, 0, 0, 0); setWindow(d.getTime(), b); }
@@ -123,7 +127,8 @@ const SessionsDash = (() => {
 
     function timeSeries(id, title, series, thresholds, opts = {}) {
         const sub = opts.sub;
-        const { W, H, m } = geom;
+        // El gráfico que ocupa las dos columnas usa un lienzo más ancho para conservar la proporción.
+        const { H, m } = geom, W = opts.span ? 1500 : geom.W;
         const iw = W - m.l - m.r, ih = H - m.t - m.b;
         const box = el("section", { class: `${PANEL}${opts.span ? " xl:col-span-2" : ""}` },
             el("div", { class: "mb-2 flex flex-wrap items-baseline gap-x-3" },
@@ -139,19 +144,19 @@ const SessionsDash = (() => {
         const top = Math.max(4, Math.ceil(maxV * 1.1));
         const X = (t) => m.l + ((t - t0) / (t1 - t0 || 1)) * iw;
         const Y = (v) => m.t + ih - (v / top) * ih;
-        const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "block h-auto w-full cursor-grab select-none", "data-chart": id });
+        const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "block h-auto w-full cursor-grab select-none", "data-chart": id, "data-w": W });
         const clip = `clip-${id}`;
         root.append(svg("defs", {}, svg("clipPath", { id: clip }, svg("rect", { x: m.l, y: m.t, width: iw, height: ih }))));
         for (let i = 0; i <= 4; i++) {
             const v = (top / 4) * i, y = Y(v);
             root.append(svg("line", { x1: m.l, x2: W - m.r, y1: y, y2: y, class: "stroke-white/10" }));
-            const lab = svg("text", { x: m.l - 8, y: y + 4, class: "fill-slate-500", "font-size": 12, "text-anchor": "end" });
+            const lab = svg("text", { x: m.l - 8, y: y + 4, class: "fill-slate-500", "font-size": 13, "text-anchor": "end" });
             lab.textContent = Math.round(v);
             root.append(lab);
         }
         for (let i = 0; i <= 6; i++) {
             const t = t0 + ((t1 - t0) / 6) * i;
-            const lab = svg("text", { x: X(t), y: H - 8, class: "fill-slate-500", "font-size": 12, "text-anchor": i === 0 ? "start" : i === 6 ? "end" : "middle" });
+            const lab = svg("text", { x: X(t), y: H - 8, class: "fill-slate-500", "font-size": 13, "text-anchor": i === 0 ? "start" : i === 6 ? "end" : "middle" });
             lab.textContent = fmtTime(t);
             root.append(lab);
         }
@@ -216,14 +221,14 @@ const SessionsDash = (() => {
             const svgEl = e.target.closest?.("svg[data-chart]");
             if (!svgEl || e.button !== 0) return;
             const [t0, t1] = curRange();
-            drag = { x: e.clientX, t0, t1, w: svgEl.getBoundingClientRect().width };
+            drag = { x: e.clientX, t0, t1, w: svgEl.getBoundingClientRect().width, W: Number(svgEl.dataset.w) || geom.W };
         });
         host.addEventListener("dblclick", (e) => { if (e.target.closest?.("svg[data-chart]")) applyRange(null); });
         host.addEventListener("wheel", (e) => {
             const svgEl = e.target.closest?.("svg[data-chart]");
             if (!svgEl || !points.length) return;
             e.preventDefault();
-            const r = svgEl.getBoundingClientRect(), { W, m } = geom;
+            const r = svgEl.getBoundingClientRect(), { m } = geom, W = Number(svgEl.dataset.w) || geom.W;
             const frac = Math.min(1, Math.max(0, (((e.clientX - r.left) / r.width) * W - m.l) / (W - m.l - m.r)));
             const [t0, t1] = curRange(), k = e.deltaY < 0 ? 0.8 : 1.25, span = (t1 - t0) * k;
             const c = t0 + frac * (t1 - t0);
@@ -233,7 +238,7 @@ const SessionsDash = (() => {
         window.addEventListener("mousemove", (e) => {
             if (ov) { ovPointerMove(e); return; }
             if (!drag) return;
-            const dt = -((e.clientX - drag.x) / drag.w) * (geom.W / (geom.W - geom.m.l - geom.m.r)) * (drag.t1 - drag.t0);
+            const dt = -((e.clientX - drag.x) / drag.w) * (drag.W / (drag.W - geom.m.l - geom.m.r)) * (drag.t1 - drag.t0);
             setWindow(drag.t0 + dt, drag.t1 + dt);
             scheduleCharts();
         });
@@ -248,7 +253,7 @@ const SessionsDash = (() => {
         const X = (t) => ((t - a) / (b - a || 1)) * W;
         const max = Math.max(1, ...points.map((p) => p.blocked));
         const Y = (v) => H - 4 - (v / max) * (H - 12);
-        const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "block h-14 w-full cursor-pointer select-none", "data-ov": 1 });
+        const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", class: "block h-14 w-full cursor-pointer select-none", "data-ov": 1 });
         const d = points.map((p, i) => (i ? `H${X(p.t).toFixed(1)} V${Y(p.blocked).toFixed(1)}` : `M${X(p.t).toFixed(1)},${Y(p.blocked).toFixed(1)}`)).join(" ");
         root.append(svg("rect", { x: 0, y: 0, width: W, height: H, rx: 8, class: "ov-bg" }),
             svg("path", { d: `${d} V${H} H${X(points[0].t)} Z`, fill: "#fb7185", "fill-opacity": ".35" }),
@@ -269,7 +274,7 @@ const SessionsDash = (() => {
         let mode = "move";
         if (Math.abs(x - px(t0)) < edge) mode = "l";
         else if (Math.abs(x - px(t1)) < edge) mode = "r";
-        else if (x < px(t0) || x > px(t1)) { const c = a + (x / OV.W) * span, h = (t1 - t0) / 2; setWindow(c - h, c + h); renderCharts(); }
+        else if (x < px(t0) || x > px(t1)) { const c = a + (x / OV.W) * span, h = (t1 - t0) / 2; rangeSel = undefined; setWindow(c - h, c + h); renderCharts(); }
         const [n0, n1] = curRange();
         ov = { mode, x: e.clientX, w: r.width, span, t0: n0, t1: n1 };
     }
@@ -281,7 +286,7 @@ const SessionsDash = (() => {
         scheduleCharts();
     }
     let raf = 0;
-    const scheduleCharts = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(renderCharts); };
+    const scheduleCharts = () => { rangeSel = undefined; cancelAnimationFrame(raf); raf = requestAnimationFrame(renderCharts); };
 
     function renderCharts() {
         const box = document.getElementById("sessions-charts");
@@ -290,9 +295,11 @@ const SessionsDash = (() => {
         const label = win.from == null ? "Todo el histórico" : `${new Date(t0).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })} → ${fmtTime(t1)}`;
         box.replaceChildren(
             el("div", { class: "flex flex-wrap items-center gap-2 xl:col-span-2" },
-                ...RANGES.map(([txt, v]) => el("button", {
-                    class: "rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 ring-1 ring-white/10 transition hover:bg-indigo-500/30",
-                    text: txt, onclick: () => applyRange(v) })),
+                ...RANGES.map(([txt, v]) => {
+                    const on = win.from == null ? v == null : rangeSel === v;
+                    return el("button", { type: "button", class: `sd-chip${on ? " active" : ""}`, "aria-pressed": String(on),
+                        text: txt, onclick: () => applyRange(v) });
+                }),
                 el("span", { class: "ml-auto text-xs text-slate-400", text: `${label} · rueda = zoom · arrastra para mover · doble clic = todo` })),
             overview(),
             timeSeries("inactive", "Sesiones inactivas > 30 min", [{ key: "inactive", label: "Inactivas", color: "#60a5fa" }],
@@ -359,7 +366,7 @@ const SessionsDash = (() => {
     function chainsPanel() {
         const total = blocking.waiting.length;
         const box = el("section", { class: PANEL }, el("div", { class: "mb-3 flex flex-wrap items-center justify-between gap-2" },
-            el("h4", { class: "text-sm font-medium text-slate-200", text: `🔗 Cadenas de bloqueo · ${blocking.roots.length} bloqueante(s), ${total} bloqueada(s)` }),
+            el("h4", { class: "text-sm font-medium text-slate-200", text: `Cadenas de bloqueo · ${blocking.roots.length} bloqueante(s), ${total} bloqueada(s)` }),
             el("span", { class: "text-xs text-slate-500", text: `Actualizado ${blocking.taken_at ? blocking.taken_at.slice(11) : ""}` })));
         const key = (i, sid) => `${i}:${sid}`;
         const byRoot = new Map();
@@ -376,7 +383,7 @@ const SessionsDash = (() => {
             const isOpen = openRoots.has(k) ? openRoots.get(k) : (idx === 0 && roots.length > 1) || (roots.length === 1 && victims.length <= 20);
             const card = el("details", { class: "mb-3 rounded-xl bg-slate-950/50 ring-1 ring-white/10", open: isOpen },
                 el("summary", { class: "flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3" },
-                    el("span", { class: `text-lg ${TONE[sev].text}`, text: "🔒" }),
+                    el("span", { class: `inline-flex ${TONE[sev].text}` }, ico("lock")),
                     el("b", { class: "text-slate-100", text: `${r.usuario || "?"} · inst ${r.instancia} · SID ${r.sid},${r.serial}` }),
                     chip(`bloquea a ${r.sesiones_bloqueadas}`, "bg-rose-500/20 text-rose-300"),
                     chip(`espera máx. ${fmtSeconds(r.segundos_espera)}`, "bg-amber-500/20 text-amber-300"),
@@ -403,7 +410,7 @@ const SessionsDash = (() => {
         const rows = blo?.details || [];
         const box = el("section", { class: PANEL }, el("h4", { class: "mb-3 text-sm font-medium text-slate-200", text: "Sesiones bloqueantes (última revisión)" }));
         if (!rows.length) {
-            box.append(el("p", { class: "rounded-xl bg-emerald-500/10 py-8 text-center text-sm text-emerald-300", text: "✔ No hay sesiones bloqueadas" }));
+            box.append(el("p", { class: "rounded-xl bg-emerald-500/10 py-8 text-center text-sm text-emerald-300", text: "No hay sesiones bloqueadas" }));
             return box;
         }
         const cols = [
@@ -435,11 +442,11 @@ const SessionsDash = (() => {
                     el("span", { class: "h-2 w-2 animate-pulse rounded-full bg-emerald-400" }),
                     `En vivo · ${fmtTime(last.t)}`)),
             el("div", { class: "grid grid-cols-2 gap-3 lg:grid-cols-4" },
-                stat("Inactivas > 30 min", "😴", last.inactive, "", ina.cls, "inactive",
+                stat("Inactivas > 30 min", "moon", last.inactive, "", ina.cls, "inactive",
                     ina.cls === "ok" ? `Aviso a partir de ${T.inactive.warn}` : `Habitual ~${ina.med} · ${ina.pct >= 0 ? "+" : ""}${ina.pct}%`, ina.label),
-                stat("Bloqueadas", "⛔", last.blocked, "", last.blocked ? "warn" : "ok", "blocked", "Esperando a un bloqueante"),
-                stat("Bloqueantes", "🔒", last.blockers, "", last.blockers ? "warn" : "ok", "blockers", "Raíz de los bloqueos"),
-                stat("Espera máxima", "⏱️", last.wait, "s", level(last.wait, T.wait), "wait", `Aviso ${T.wait.warn} s · crítico ${T.wait.crit} s`)),
+                stat("Bloqueadas", "octagon", last.blocked, "", last.blocked ? "warn" : "ok", "blocked", "Esperando a un bloqueante"),
+                stat("Bloqueantes", "lock", last.blockers, "", last.blockers ? "warn" : "ok", "blockers", "Raíz de los bloqueos"),
+                stat("Espera máxima", "hourglass", last.wait, "s", level(last.wait, T.wait), "wait", `Aviso ${T.wait.warn} s · crítico ${T.wait.crit} s`)),
             el("div", { id: "sessions-charts", class: "grid grid-cols-1 gap-4 xl:grid-cols-2" }),
             inactiveLink(),
             blockersTable(),

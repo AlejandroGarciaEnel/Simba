@@ -13,9 +13,10 @@ const SEV = {
     WARNING: { label: "A revisar", cls: "warn", order: 2 },
     CRITICAL: { label: "Prioritario", cls: "crit", order: 3 },
 };
+// Iconos del sprite SVG de index.html (#i-…)
 const AREA_ICON = {
-    CPU: "🧠", Bloqueos: "🔒", Conexiones: "🔌", Espacio: "💾", Sesiones: "👥",
-    Errores: "⚠️", Esperas: "⏳", "Operaciones largas": "🐢",
+    CPU: "cpu", Bloqueos: "lock", Conexiones: "plug", Espacio: "disk", Sesiones: "sesiones",
+    Errores: "alert", Esperas: "hourglass", "Operaciones largas": "gauge",
 };
 const AWR_MAX_MB = 20;
 
@@ -46,6 +47,17 @@ function el(tag, props = {}, ...children) {
     return node;
 }
 
+function icon(name, cls = "ico") {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", cls);
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS(NS, "use");
+    use.setAttribute("href", `#i-${name}`);
+    svg.append(use);
+    return svg;
+}
+
 function can(role) {
     return state.user && ROLE_LEVEL[state.user.role] >= ROLE_LEVEL[role];
 }
@@ -57,12 +69,12 @@ function fmtDate(iso) {
 }
 
 function ago(iso) {
-    const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+    const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
     if (isNaN(mins)) return "";
     if (mins < 1) return "hace menos de un minuto";
     if (mins < 60) return `hace ${mins} min`;
-    const h = Math.round(mins / 60);
-    return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+    const h = Math.floor(mins / 60);
+    return h < 48 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} días`;
 }
 
 function toast(message, kind = "ok") {
@@ -70,6 +82,40 @@ function toast(message, kind = "ok") {
     $("toasts").append(t);
     setTimeout(() => t.remove(), 4000);
 }
+
+// Diálogo propio en lugar de prompt()/confirm(): enmascara contraseñas y respeta el tema.
+// fields: [{ name, label, type, minlength }] -> resuelve con { name: valor } o null si se cancela.
+function uiDialog({ title, message = "", fields = [], ok = "Aceptar", danger = false }) {
+    const dlg = $("ui-dialog"), form = $("ui-dialog-form");
+    $("ui-dialog-title").textContent = title;
+    $("ui-dialog-msg").textContent = message;
+    $("ui-dialog-msg").hidden = !message;
+    $("ui-dialog-error").textContent = "";
+    $("ui-dialog-ok").textContent = ok;
+    dlg.classList.toggle("danger", danger);
+    const inputs = fields.map((f) => el("input", {
+        name: f.name, type: f.type || "text", required: true, minlength: f.minlength,
+        autocomplete: f.type === "password" ? "new-password" : "off",
+    }));
+    $("ui-dialog-fields").replaceChildren(...fields.map((f, i) => el("label", {}, f.label, inputs[i])));
+    return new Promise((resolve) => {
+        const onClose = () => {
+            form.removeEventListener("submit", onSubmit);
+            resolve(dlg.returnValue === "ok" ? Object.fromEntries(inputs.map((i) => [i.name, i.value])) : null);
+        };
+        const onSubmit = (e) => {
+            if (e.submitter?.value !== "ok") return;
+            const bad = inputs.find((i) => !i.checkValidity());
+            if (bad) { e.preventDefault(); $("ui-dialog-error").textContent = bad.validationMessage; bad.focus(); }
+        };
+        form.addEventListener("submit", onSubmit);
+        dlg.addEventListener("close", onClose, { once: true });
+        dlg.returnValue = "";
+        dlg.showModal();
+        (inputs[0] || $("ui-dialog-ok")).focus();
+    });
+}
+const confirmDialog = (title, message, ok = "Eliminar") => uiDialog({ title, message, ok, danger: true }).then(Boolean);
 
 function sevPill(sev) {
     const s = SEV[sev] || SEV.INFO;
@@ -143,6 +189,7 @@ function showApp() {
     $("login-view").hidden = true;
     $("app-view").hidden = false;
     $("user-name").textContent = state.user.username;
+    $("user-avatar").textContent = (state.user.username || "?").charAt(0);
     $("user-role").textContent = ROLE_LABEL[state.user.role] || state.user.role;
     $("user-role").className = `role-badge role-${state.user.role}`;
     document.querySelectorAll("[data-min-role]").forEach((n) => {
@@ -293,9 +340,12 @@ document.addEventListener("visibilitychange", () => {
 // ========== Navegación ==========
 function switchView(view) {
     live.view = view;
-    if (view === "sesiones") { SessionsDash.update(state.check); if (!state.check) loadHealth(false, true); }
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+    document.querySelectorAll(".tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.view === view);
+        if (t.dataset.view === view) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+    });
     document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
+    if (view === "sesiones") { SessionsDash.update(state.check); if (!state.check) loadHealth(false, true); }
     if (view === "historico") loadHistory();
     if (view === "queries") loadQueries();
     if (view === "usuarios") loadUsers();
@@ -385,12 +435,12 @@ function renderHealth() {
     areas.forEach((a) => { ringCounts[a.severity] += 1; });
     $("hero-ring").replaceChildren(...(areas.length ? [EstadoPlus.ring(ringCounts, areas.length)] : []));
     $("status-hero").className = `status-hero hero-${heroCls}`;
-    $("hero-icon").textContent = { ok: "✓", info: "i", warn: "!", crit: "✕" }[heroCls];
+    $("hero-icon").replaceChildren(icon({ ok: "check", info: "info", warn: "alert", crit: "octagon" }[heroCls]));
 
     const counts = { OK: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
     areas.forEach((a) => { counts[a.severity] += 1; });
     const filter = EstadoPlus.getFilter();
-    const TILE_ICON = { CRITICAL: "🚨", WARNING: "⚠️", INFO: "ℹ️", OK: "✅" };
+    const TILE_ICON = { CRITICAL: "octagon", WARNING: "alert", INFO: "info", OK: "check" };
     $("counters").replaceChildren(
         ...["CRITICAL", "WARNING", "INFO", "OK"].map((s) =>
             el("button", {
@@ -400,7 +450,7 @@ function renderHealth() {
                 "aria-pressed": filter === SEV[s].cls ? "true" : "false",
                 onclick: () => { EstadoPlus.setFilter(SEV[s].cls); renderHealth(); },
             },
-                el("span", { class: "tile-ico", text: TILE_ICON[s] }),
+                el("span", { class: "tile-ico" }, icon(TILE_ICON[s])),
                 el("div", {}, el("strong", { text: counts[s] }), el("span", { text: SEV[s].label }))))
     );
 
@@ -477,7 +527,7 @@ function renderAreaCard({ area, items, severity }) {
     const brief = cpuNodes ? cpuNodes.message.replace(/^CPU:\s*/, "") : shown[0].message;
     return el("details", { class: `row row-${cls}`, "data-area": area, ontoggle: onRowToggle },
         el("summary", {},
-            el("span", { class: `area-icon ico-${cls}`, text: AREA_ICON[area] || "•" }),
+            el("span", { class: `area-icon ico-${cls}` }, icon(AREA_ICON[area] || "dot")),
             el("strong", { class: "row-title", text: area }),
             el("span", { class: "row-brief", text: brief + extra }),
             EstadoPlus.metric(area),
@@ -964,8 +1014,8 @@ function renderComments(c) {
                         el("strong", { text: m.author }),
                         el("span", { class: "cm-role", text: ROLE_LABEL[m.role] || m.role || "" }),
                         el("span", { class: "muted", text: fmtDate(m.at) }),
-                        (m.author === me || state.user?.role === "administrador") ? el("button", { class: "cm-del", title: "Borrar comentario", text: "✕", onclick: async () => {
-                            if (!confirm("¿Borrar este comentario?")) return;
+                        (m.author === me || state.user?.role === "administrador") ? el("button", { class: "cm-del", title: "Borrar comentario", "aria-label": "Borrar comentario", text: "✕", onclick: async () => {
+                            if (!await confirmDialog("¿Borrar este comentario?", "El comentario se eliminará para todos.")) return;
                             try {
                                 await api(`/query-board/${c.sql_id}/comments/${m.id}`, { method: "DELETE" });
                                 sync(list.filter((x) => x.id !== m.id));
@@ -1077,7 +1127,8 @@ async function loadHistory() {
 }
 
 function firstLine(text) {
-    const line = (text || "").split("\n").find((l) => l.trim() && !l.startsWith("Estado global")) || text || "";
+    const raw = (text || "").split("\n").find((l) => l.trim() && !l.startsWith("Estado global")) || text || "";
+    const line = raw.replace(/^\s*[-•*]\s*/, "").replace(/^\[(OK|INFO|WARNING|CRITICAL)\]\s*/, "");
     return line.length > 110 ? line.slice(0, 107) + "…" : line;
 }
 
@@ -1094,18 +1145,21 @@ async function loadUsers() {
 
 function renderUserRow(u) {
     const self = u.username === state.user.username;
-    const roleSel = el("select", { onchange: (e) => updateUser(u.username, { role: e.target.value }) },
+    // Uno mismo no puede quitarse el rol ni desactivarse (evita quedarse fuera por error).
+    const selfTip = self ? "No puedes cambiar tu propio rol ni desactivarte" : null;
+    const roleSel = el("select", { "aria-label": `Rol de ${u.username}`, disabled: self, title: selfTip,
+        onchange: (e) => updateUser(u.username, { role: e.target.value }) },
         Object.keys(ROLE_LEVEL).map((r) => el("option", { value: r, selected: r === u.role, text: ROLE_LABEL[r] })));
-    const active = el("input", { type: "checkbox", checked: u.active,
-        onchange: (e) => updateUser(u.username, { active: e.target.checked }) });
+    const active = el("input", { type: "checkbox", checked: u.active, disabled: self, title: selfTip,
+        "aria-label": `${u.username} activo`, onchange: (e) => updateUser(u.username, { active: e.target.checked }) });
     return el("tr", {},
-        el("td", {}, u.username, self ? el("span", { class: "muted", text: " (tú)" }) : null),
+        el("td", {}, u.username, self ? el("span", { class: "tag tag-strong", style: "margin-left:8px", text: "tú" }) : null),
         el("td", {}, roleSel),
         el("td", {}, active),
         el("td", { text: fmtDate(u.created_at) }),
-        el("td", { class: "row-actions" },
-            el("button", { class: "btn btn-small", text: "Cambiar contraseña", onclick: () => resetPassword(u.username) }),
-            self ? null : el("button", { class: "btn btn-small btn-danger", text: "Eliminar", onclick: () => deleteUser(u.username) })));
+        el("td", { class: "row-actions" }, el("div", { class: "row-actions-inner" },
+            el("button", { class: "btn btn-small", onclick: () => resetPassword(u.username) }, icon("key"), "Contraseña"),
+            self ? null : el("button", { class: "btn btn-small btn-danger", onclick: () => deleteUser(u.username) }, icon("trash"), "Eliminar"))));
 }
 
 async function updateUser(username, changes) {
@@ -1120,12 +1174,18 @@ async function updateUser(username, changes) {
 }
 
 async function resetPassword(username) {
-    const password = prompt(`Nueva contraseña para ${username} (mínimo 10 caracteres):`);
-    if (password) updateUser(username, { password });
+    const res = await uiDialog({
+        title: `Cambiar contraseña de ${username}`, message: "Mínimo 10 caracteres.", ok: "Guardar",
+        fields: [{ name: "p1", label: "Nueva contraseña", type: "password", minlength: 10 },
+                 { name: "p2", label: "Repite la contraseña", type: "password", minlength: 10 }],
+    });
+    if (!res) return;
+    if (res.p1 !== res.p2) return toast("Las contraseñas no coinciden", "error");
+    updateUser(username, { password: res.p1 });
 }
 
 async function deleteUser(username) {
-    if (!confirm(`¿Eliminar el usuario ${username}?`)) return;
+    if (!await confirmDialog(`¿Eliminar el usuario ${username}?`, "Perderá el acceso a SIMBA de inmediato. Esta acción no se puede deshacer.")) return;
     try {
         await api(`/users/${encodeURIComponent(username)}`, { method: "DELETE" });
         toast("Usuario eliminado");
@@ -1152,11 +1212,14 @@ async function createUser(e) {
 function openAssistant() {
     document.body.classList.add("assistant-open");
     $("assistant").setAttribute("aria-hidden", "false");
+    $("assistant-toggle").setAttribute("aria-expanded", "true");
+    setTimeout(() => $("chat-input").focus(), 200);
 }
 
 function closeAssistant() {
     document.body.classList.remove("assistant-open");
     $("assistant").setAttribute("aria-hidden", "true");
+    $("assistant-toggle").setAttribute("aria-expanded", "false");
 }
 
 function chatHeaders() {
@@ -1261,7 +1324,7 @@ async function sendMessage(text) {
 }
 
 async function clearChat() {
-    if (!confirm("¿Limpiar la conversación con el asistente?")) return;
+    if (!await confirmDialog("¿Limpiar la conversación?", "Se borrará el historial del asistente en esta sesión.", "Limpiar")) return;
     await api("/clear-history", { method: "POST", headers: chatHeaders(), raw: true }).catch(() => {});
     state.chat = [];
     sessionStorage.removeItem("chatHistory");
@@ -1307,7 +1370,8 @@ async function uploadAwr(files) {
 function initTheme() {
     const dark = localStorage.getItem("darkMode") === "true";
     document.body.classList.toggle("dark", dark);
-    $("theme-btn").textContent = dark ? "☀️" : "🌙";
+    $("theme-btn").querySelector("use").setAttribute("href", dark ? "#i-sun" : "#i-moon");
+    $("theme-btn").title = dark ? "Tema claro" : "Tema oscuro";
 }
 
 function bindEvents() {
@@ -1340,6 +1404,9 @@ function bindEvents() {
     $("assistant-toggle").addEventListener("click", () =>
         document.body.classList.contains("assistant-open") ? closeAssistant() : openAssistant());
     $("assistant-close").addEventListener("click", closeAssistant);
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && document.body.classList.contains("assistant-open") && !document.querySelector("dialog[open]")) closeAssistant();
+    });
     $("clear-chat-btn").addEventListener("click", clearChat);
     $("composer").addEventListener("submit", (e) => { e.preventDefault(); sendMessage(); });
     $("chat-input").addEventListener("keydown", (e) => {

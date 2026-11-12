@@ -4,19 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SIMBA · Monitor Oracle</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M7 20l5-6 4 4 5-7 4 5' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Iconos SVG (trazo 1.8, 24x24). Se usan con <svg class="ico"><use href="#i-..."/></svg> -->
+    <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false">
+        <defs>
+            <linearGradient id="logo-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+        </defs>
+        <symbol id="i-logo" viewBox="0 0 40 40"><rect width="40" height="40" rx="11" fill="url(#logo-grad)"/><path d="M7 21h6l3-8 5 15 4-11 2.5 4H33" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-estado" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+        <symbol id="i-sesiones" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c1.9.7 3.1 2.4 3.5 5.2"/></symbol>
+        <symbol id="i-queries" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+        <symbol id="i-historico" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5M3.5 3.5v5h5M12 7.5V12l3 2"/></symbol>
+        <symbol id="i-awr" viewBox="0 0 24 24"><path d="M12 3 2.5 8 12 13l9.5-5L12 3zM2.5 12.5 12 17.5l9.5-5M2.5 17 12 22l9.5-5"/></symbol>
+        <symbol id="i-usuarios" viewBox="0 0 24 24"><path d="M12 2.8 19.5 6v5.6c0 4.6-3.2 8.4-7.5 9.6-4.3-1.2-7.5-5-7.5-9.6V6L12 2.8z"/><circle cx="12" cy="10" r="2.6"/><path d="M8 16.2c.9-1.6 2.3-2.4 4-2.4s3.1.8 4 2.4"/></symbol>
+        <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 0 1-12.3 7.6L3.5 21l1.4-4.6A8.5 8.5 0 1 1 20.5 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01" stroke-width="2.6"/></symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></symbol>
+        <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9.5a6 6 0 0 1 12 0c0 5.5 2.5 7 2.5 7h-17S6 15 6 9.5zM10 20a2.2 2.2 0 0 0 4 0"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9.5 4H6.5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M15 8l4 4-4 4M19 12H9.5"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.4L4 8.5M4 3.5v5h5M4 13a8 8 0 0 0 14.6 4.4L20 15.5M20 20.5v-5h-5"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5-12-7.5z"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.5-4.5"/></symbol>
+        <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></symbol>
+        <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" stroke-width="2.2"/></symbol>
+        <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21.5h4M12 2.5a6.5 6.5 0 0 0-4 11.6c.7.6 1 1.4 1 2.4h6c0-1 .3-1.8 1-2.4a6.5 6.5 0 0 0-4-11.6z"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5h.01" stroke-width="2.2"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.5"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.2 2.6 17.6A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-2.9L13.7 4.2a2 2 0 0 0-3.4 0zM12 9.5v4.5M12 17h.01"/></symbol>
+        <symbol id="i-octagon" viewBox="0 0 24 24"><path d="M8.2 2.5h7.6l5.7 5.7v7.6l-5.7 5.7H8.2l-5.7-5.7V8.2l5.7-5.7zM12 7.5v5.5M12 16.5h.01"/></symbol>
+        <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9.5 2.5V6M14.5 2.5V6M9.5 18v3.5M14.5 18v3.5M2.5 9.5H6M2.5 14.5H6M18 9.5h3.5M18 14.5h3.5"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14.5v2.5"/></symbol>
+        <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2.5V7M15 2.5V7M6.5 7h11v4a5.5 5.5 0 0 1-11 0V7zM12 16.5v5"/></symbol>
+        <symbol id="i-disk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 14h18M7 17h.01M11 17h.01" stroke-width="2.2"/></symbol>
+        <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M6.5 2.5h11M6.5 21.5h11M7.5 2.5c0 5 9 6.5 9 9.5s-9 4.5-9 9.5M16.5 2.5c0 5-9 6.5-9 9.5s9 4.5 9 9.5"/></symbol>
+        <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M3.5 17a8.5 8.5 0 1 1 17 0M12 17l4-5.5"/><circle cx="12" cy="17" r="1.4"/></symbol>
+        <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15.5V3.5M7 8l5-4.5L17 8M4 15v3.5A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2V15"/></symbol>
+        <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8 20 3M16.5 6.5l3 3M14 9l2 2"/></symbol>
+    </svg>
     <!-- ========== Login ========== -->
     <section id="login-view" class="login-view" hidden>
         <form id="login-form" class="login-card" autocomplete="on">
             <div class="brand brand-lg">
-                <span class="brand-mark">S</span>
+                <svg class="brand-mark" aria-hidden="true"><use href="#i-logo"/></svg>
                 <div>
                     <h1>SIMBA</h1>
                     <p>Monitorización de base de datos Oracle</p>
                 </div>
             </div>
+            <p class="login-lead">Inicia sesión para ver el estado de la base de datos en tiempo real.</p>
             <label>Usuario
                 <input id="login-username" name="username" autocomplete="username" required>
             </label>
@@ -25,44 +68,64 @@
             </label>
             <p id="login-error" class="form-error" role="alert"></p>
             <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+            <p class="login-foot"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg>Acceso de solo lectura a Oracle · cada acción queda registrada</p>
         </form>
+        <aside class="login-side" aria-hidden="true">
+            <div class="login-side-inner">
+                <span class="login-kicker">SIMBA · Monitor Oracle</span>
+                <h2>El estado de la base de datos, claro y en tiempo real.</h2>
+                <ul>
+                    <li><svg class="ico"><use href="#i-estado"/></svg>Revisión de salud con semáforo por área y tendencias</li>
+                    <li><svg class="ico"><use href="#i-sesiones"/></svg>Sesiones inactivas, bloqueos y cadenas de bloqueo</li>
+                    <li><svg class="ico"><use href="#i-queries"/></svg>Seguimiento de las SQL más costosas de la semana</li>
+                    <li><svg class="ico"><use href="#i-spark"/></svg>Asistente IA para explicar cualquier hallazgo</li>
+                </ul>
+            </div>
+        </aside>
     </section>
 
     <!-- ========== Aplicación ========== -->
     <div id="app-view" class="app" hidden>
         <header class="topbar">
             <div class="brand">
-                <span class="brand-mark">S</span>
+                <svg class="brand-mark" aria-hidden="true"><use href="#i-logo"/></svg>
                 <div>
                     <strong>SIMBA</strong>
                     <small>Monitor Oracle</small>
                 </div>
             </div>
-            <nav class="tabs" id="tabs">
-                <button class="tab active" data-view="estado"><span class="tab-ico">📊</span>Estado</button>
-                <button class="tab" data-view="sesiones"><span class="tab-ico">👥</span>Sesiones</button>
-                <button class="tab" data-view="queries"><span class="tab-ico">🧮</span>Queries</button>
-                <button class="tab" data-view="historico"><span class="tab-ico">🕘</span>Histórico</button>
-                <button class="tab" data-view="awr" data-min-role="administrador"><span class="tab-ico">🗂️</span>AWR</button>
-                <button class="tab" data-view="usuarios" data-min-role="administrador"><span class="tab-ico">🔑</span>Usuarios</button>
+            <nav class="tabs" id="tabs" aria-label="Secciones">
+                <span class="nav-label">Monitorización</span>
+                <button class="tab active" data-view="estado" aria-current="page"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-estado"/></svg><span>Estado</span></button>
+                <button class="tab" data-view="sesiones"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-sesiones"/></svg><span>Sesiones</span></button>
+                <button class="tab" data-view="queries"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-queries"/></svg><span>Queries</span></button>
+                <button class="tab" data-view="historico"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-historico"/></svg><span>Histórico</span></button>
+                <span class="nav-label" data-min-role="administrador">Administración</span>
+                <button class="tab" data-view="awr" data-min-role="administrador"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-awr"/></svg><span>AWR</span></button>
+                <button class="tab" data-view="usuarios" data-min-role="administrador"><svg class="ico tab-ico" aria-hidden="true"><use href="#i-usuarios"/></svg><span>Usuarios</span></button>
             </nav>
             <div class="topbar-right">
                 <span class="conn" id="conn" title="Estado de la conexión">
                     <span class="dot" id="conn-dot"></span><span id="conn-text">Comprobando…</span>
                 </span>
-                <button class="btn btn-ghost" id="assistant-toggle" title="Abrir el asistente">💬 Asistente</button>
-                <div class="topbar-tools">
-                <div class="bell-wrap">
-                    <button class="icon-btn bell" id="bell-btn" title="Avisos sobre tus SQL" aria-haspopup="true" aria-expanded="false">🔔<span class="bell-badge" id="bell-badge" hidden>0</span></button>
-                    <div class="bell-panel" id="bell-panel" hidden></div>
-                </div>
-                <button class="icon-btn" id="theme-btn" title="Cambiar tema">🌙</button>
-                </div>
+                <button class="btn btn-assist" id="assistant-toggle" title="Abrir el asistente" aria-controls="assistant" aria-expanded="false">
+                    <svg class="ico" aria-hidden="true"><use href="#i-spark"/></svg><span>Asistente IA</span>
+                </button>
                 <div class="user-chip">
-                    <span id="user-name"></span>
-                    <span class="role-badge" id="user-role"></span>
+                    <span class="avatar" id="user-avatar" aria-hidden="true"></span>
+                    <div class="user-meta">
+                        <span id="user-name"></span>
+                        <span class="role-badge" id="user-role"></span>
+                    </div>
+                    <div class="topbar-tools">
+                        <div class="bell-wrap">
+                            <button class="icon-btn bell" id="bell-btn" title="Avisos sobre tus SQL" aria-label="Avisos" aria-haspopup="true" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg><span class="bell-badge" id="bell-badge" hidden>0</span></button>
+                            <div class="bell-panel" id="bell-panel" hidden></div>
+                        </div>
+                        <button class="icon-btn" id="theme-btn" title="Cambiar tema" aria-label="Cambiar tema"><svg class="ico" aria-hidden="true"><use href="#i-moon"/></svg></button>
+                        <button class="icon-btn" id="logout-btn" title="Cerrar sesión" aria-label="Cerrar sesión"><svg class="ico" aria-hidden="true"><use href="#i-logout"/></svg></button>
+                    </div>
                 </div>
-                <button class="btn btn-ghost" id="logout-btn">Salir</button>
             </div>
         </header>
 
@@ -82,9 +145,9 @@
                         </div>
                         <div class="hero-ring" id="hero-ring" aria-hidden="true"></div>
                         <div class="status-actions">
-                            <button class="btn" id="refresh-btn" title="Muestra la última revisión; solo consulta Oracle si ha caducado">↻ Actualizar</button>
+                            <button class="btn" id="refresh-btn" title="Muestra la última revisión; solo consulta Oracle si ha caducado"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>Actualizar</button>
                             <button class="btn btn-primary" id="force-btn" data-min-role="dba"
-                                    title="Ejecuta una revisión nueva contra Oracle ignorando la caché">Revisar ahora</button>
+                                    title="Ejecuta una revisión nueva contra Oracle ignorando la caché"><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg>Revisar ahora</button>
                         </div>
                     </div>
 
@@ -97,7 +160,7 @@
                     <div class="rows rows-ok" id="ok-cards"></div>
                     <p class="foot-note">Los hallazgos son indicios, no causas confirmadas; las recomendaciones son sugerencias que debe verificar el equipo funcional.</p>
 
-                    <details class="panel" id="detail-panel" data-min-role="dba">
+                    <details class="panel panel-collapsible" id="detail-panel" data-min-role="dba">
                         <summary>Detalle técnico de la revisión <span class="muted">(DBA)</span></summary>
                         <div class="subtabs" id="detail-tabs"></div>
                         <div class="table-wrap" id="detail-body"><p class="muted">Abre esta sección para cargar los datos.</p></div>
@@ -117,24 +180,24 @@
                             <p class="muted" id="queries-meta">Recomendaciones sobre el informe semanal de SQL más costosas y su seguimiento.</p>
                         </div>
                         <div class="inline-form">
-                            <input type="search" id="queries-search" placeholder="SQL_ID, esquema o persona">
+                            <label class="search-field"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="queries-search" placeholder="SQL_ID, esquema o persona" aria-label="Buscar"></label>
                             <select id="queries-filter">
                                 <option value="">Todas las recomendaciones</option>
                                 <option value="seguimiento">Seguimiento (nuevas, estancadas, completadas)</option>
                                 <option value="tecnica">Pistas técnicas</option>
                             </select>
-                            <button class="btn" id="queries-reload" title="Volver a leer los Excel">↻</button>
+                            <button class="btn btn-icon" id="queries-reload" title="Volver a leer los Excel" aria-label="Volver a leer los Excel"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg></button>
                         </div>
                     </div>
                     <div class="counters" id="queries-counters"></div>
-                    <div class="subtabs" id="queries-modes">
-                        <button data-mode="tablero" class="active">🗂️ Tablero</button>
-                        <button data-mode="lista">📋 Lista</button>
-                        <button data-mode="recomendaciones">💡 Recomendaciones</button>
+                    <div class="segmented" id="queries-modes" role="tablist">
+                        <button data-mode="tablero" class="active"><svg class="ico" aria-hidden="true"><use href="#i-board"/></svg>Tablero</button>
+                        <button data-mode="lista"><svg class="ico" aria-hidden="true"><use href="#i-list"/></svg>Lista</button>
+                        <button data-mode="recomendaciones"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>Recomendaciones</button>
                     </div>
-                    <p class="note">ℹ️ Calculado a partir de los Excel del informe semanal y del seguimiento (sin IA). Los DBA pueden arrastrar
+                    <p class="note"><svg class="ico" aria-hidden="true"><use href="#i-info"/></svg><span>Calculado a partir de los Excel del informe semanal y del seguimiento (sin IA). Los DBA pueden arrastrar
                         tarjetas y añadir notas: se guardan aparte y no modifican los Excel. Son sugerencias: antes de actuar, deben
-                        verificarlas el DBA y el equipo funcional.</p>
+                        verificarlas el DBA y el equipo funcional.</span></p>
                     <div id="queries-body"></div>
                 </section>
 
@@ -151,10 +214,10 @@
                                 <option value="50">Últimas 50</option>
                                 <option value="200">Últimas 200</option>
                             </select>
-                            <button class="btn" id="history-reload">↻</button>
+                            <button class="btn btn-icon" id="history-reload" title="Recargar" aria-label="Recargar"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg></button>
                         </div>
                     </div>
-                    <div class="timeline" id="history-timeline" title="Estado de cada revisión, de la más antigua a la más reciente"></div>
+                    <div class="hist-strip" id="history-timeline" title="Estado de cada revisión, de la más antigua a la más reciente"></div>
                     <div class="table-wrap">
                         <table class="table" id="history-table">
                             <thead><tr><th>Fecha</th><th>Usuario</th><th>Origen</th><th>Estado</th><th>Resumen</th></tr></thead>
@@ -163,18 +226,19 @@
                     </div>
                 </section>
 
-                <!-- Usuarios -->
+                <!-- AWR (administrador) -->
                 <section class="view" id="view-awr" hidden>
                     <div class="section-head">
                         <div>
                             <h2>AWR</h2>
                             <p class="muted">Snapshots guardados en <b>DBA_HIST_SNAPSHOT</b> durante el horario laboral y resumen semanal del viernes.</p>
                         </div>
-                        <button class="btn btn-small" id="awr-refresh">↻ Actualizar</button>
+                        <button class="btn" id="awr-refresh"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>Actualizar</button>
                     </div>
                     <div id="awr-body"><p class="muted">Cargando…</p></div>
                 </section>
 
+                <!-- Usuarios (administrador) -->
                 <section class="view" id="view-usuarios" hidden>
                     <div class="section-head">
                         <div>
@@ -183,10 +247,11 @@
                                 detalle técnico y AWR · <b>Administrador</b>: además gestión de usuarios.</p>
                         </div>
                     </div>
-                    <form class="panel inline-form" id="new-user-form">
-                        <input id="nu-username" placeholder="Usuario" required>
-                        <input id="nu-password" type="password" placeholder="Contraseña (mín. 10)" autocomplete="new-password" required>
-                        <select id="nu-role">
+                    <form class="panel inline-form new-user" id="new-user-form">
+                        <span class="new-user-title"><svg class="ico" aria-hidden="true"><use href="#i-key"/></svg>Nuevo usuario</span>
+                        <input id="nu-username" placeholder="Usuario" aria-label="Usuario" autocomplete="off" required>
+                        <input id="nu-password" type="password" placeholder="Contraseña (mín. 10)" aria-label="Contraseña" autocomplete="new-password" minlength="10" required>
+                        <select id="nu-role" aria-label="Rol">
                             <option value="consulta">Consulta</option>
                             <option value="dba">DBA</option>
                             <option value="administrador">Administrador</option>
@@ -203,15 +268,16 @@
             </main>
 
             <!-- ========== Asistente (opcional) ========== -->
-            <aside class="assistant" id="assistant" aria-hidden="true">
+            <aside class="assistant" id="assistant" aria-hidden="true" aria-label="Asistente SIMBA">
                 <div class="assistant-head">
+                    <span class="assistant-mark" aria-hidden="true"><svg class="ico"><use href="#i-spark"/></svg></span>
                     <div>
                         <strong>Asistente SIMBA</strong>
                         <small class="muted">Respuestas generadas por IA · solo lectura</small>
                     </div>
-                    <div>
-                        <button class="icon-btn" id="clear-chat-btn" title="Limpiar conversación">🗑️</button>
-                        <button class="icon-btn" id="assistant-close" title="Cerrar">✕</button>
+                    <div class="assistant-tools">
+                        <button class="icon-btn" id="clear-chat-btn" title="Limpiar conversación" aria-label="Limpiar conversación"><svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg></button>
+                        <button class="icon-btn" id="assistant-close" title="Cerrar" aria-label="Cerrar asistente"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
                     </div>
                 </div>
                 <div class="quick" id="quick-actions">
@@ -219,14 +285,14 @@
                     <button data-query="Veo problemas en las aplicaciones, ¿la base de datos tiene algo?">Veo problemas en las apps</button>
                     <button data-query="¿Cuánta CPU está usando la base de datos?">CPU</button>
                     <button data-query="Genera un informe completo en HTML">Informe HTML</button>
-                    <button id="awr-btn" data-min-role="dba" title="También puedes arrastrar el .html aquí">Cargar AWR</button>
+                    <button id="awr-btn" data-min-role="dba" title="También puedes arrastrar el .html aquí"><svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>Cargar AWR</button>
                     <input type="file" id="awr-input" accept=".html,.htm" hidden>
                 </div>
                 <div class="messages" id="messages"></div>
-                <div class="drop-overlay" id="drop-overlay">📄 Suelta aquí el informe AWR (.html)</div>
+                <div class="drop-overlay" id="drop-overlay"><svg class="ico" aria-hidden="true"><use href="#i-upload"/></svg>Suelta aquí el informe AWR (.html)</div>
                 <form class="composer" id="composer">
-                    <textarea id="chat-input" rows="2" placeholder="Pregunta sobre la base de datos… (Ctrl+Enter)"></textarea>
-                    <button class="btn btn-primary" type="submit" id="send-btn">Enviar</button>
+                    <textarea id="chat-input" rows="2" placeholder="Pregunta sobre la base de datos… (Ctrl+Enter)" aria-label="Mensaje para el asistente"></textarea>
+                    <button class="btn btn-primary btn-send" type="submit" id="send-btn" title="Enviar (Ctrl+Enter)" aria-label="Enviar"><svg class="ico" aria-hidden="true"><use href="#i-send"/></svg></button>
                 </form>
             </aside>
         </div>
@@ -236,16 +302,31 @@
     <dialog class="sql-dialog" id="sql-dialog">
         <div class="sql-dialog-head">
             <div id="sql-dialog-title"></div>
-            <button class="icon-btn" id="sql-dialog-close" title="Cerrar">✕</button>
+            <button class="icon-btn" id="sql-dialog-close" title="Cerrar" aria-label="Cerrar"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
         </div>
         <div class="sql-dialog-body" id="sql-dialog-body"></div>
     </dialog>
+    <!-- Confirmaciones y contraseñas (sustituye a prompt/confirm del navegador) -->
+    <dialog class="ui-dialog" id="ui-dialog" aria-labelledby="ui-dialog-title">
+        <form method="dialog" id="ui-dialog-form">
+            <h3 id="ui-dialog-title"></h3>
+            <p class="muted" id="ui-dialog-msg"></p>
+            <div id="ui-dialog-fields"></div>
+            <p class="form-error" id="ui-dialog-error" role="alert"></p>
+            <div class="ui-dialog-actions">
+                <button class="btn" value="cancel" formnovalidate id="ui-dialog-cancel">Cancelar</button>
+                <button class="btn btn-primary" value="ok" id="ui-dialog-ok">Aceptar</button>
+            </div>
+        </form>
+    </dialog>
 
+    <!-- Solo tema y utilidades (sin "preflight"). La regla vacía inicial evita que el escáner de precarga
+         del navegador intente descargar los @import como CSS normal (404); Tailwind los resuelve internamente. -->
     <style type="text/tailwindcss">
-        /* Solo tema y utilidades: sin "preflight", para no alterar el resto de la web */
+        #sessions-dash {}
         @layer theme, utilities;
-        @import "tailwindcss/theme.css" layer(theme);
-        @import "tailwindcss/utilities.css" layer(utilities);
+        @import "tailwindcss/theme" layer(theme);
+        @import "tailwindcss/utilities" layer(utilities);
     </style>
     <script src="vendor/tailwind.js"></script>
     <script src="sessions-dash.js"></script>
