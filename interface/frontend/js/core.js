@@ -195,6 +195,8 @@ async function logout() {
 }
 
 function showApp() {
+    // En modo presentación se precargan usuarios y máquinas para que el asistente no los cite con su nombre real.
+    if (Present.isOn() && state.user.role !== "consulta") api("/inactive-sessions").catch(() => {});
     $("login-view").hidden = true;
     $("app-view").hidden = false;
     $("user-name").textContent = state.user.username;

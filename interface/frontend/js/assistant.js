@@ -105,7 +105,7 @@ async function sendMessage(text) {
     setBusy(true);
     try {
         const res = await api("/chat", { method: "POST", body: { message }, headers: chatHeaders(), raw: true });
-        const data = await res.json().catch(() => ({}));
+        const data = Present.mask(await res.json().catch(() => ({})));
         rememberChat(res);
         if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
         pushMessage("assistant", data.success ? data.message : `⚠️ ${data.message}`);
@@ -149,7 +149,7 @@ async function uploadAwr(files) {
     form.append("file", file);
     try {
         const res = await api("/awr/upload", { method: "POST", body: form, headers: chatHeaders(), raw: true });
-        const data = await res.json().catch(() => ({}));
+        const data = Present.mask(await res.json().catch(() => ({})));
         rememberChat(res);
         if (!res.ok || !data.success) throw new Error(data.detail || data.message || `Error ${res.status}`);
         pushMessage("assistant", data.message);
