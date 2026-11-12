@@ -307,7 +307,7 @@ const SQL_BREAK_RE = /\s+(?=\b(?:FROM|WHERE|AND|OR|GROUP BY|ORDER BY|HAVING|UNIO
 // Inserta saltos de línea antes de las cláusulas principales (sin tocar literales entre comillas).
 function formatSql(text) {
     if (/\n/.test(text.trim())) return text;
-    return text.split(/('(?:[^']|'')*')/).map((part, i) => i % 2 ? part : part.replace(SQL_BREAK_RE, (m, off) => off === 0 ? m : "\n")).join("")
+    return text.split(/('(?:[^']|'')*')/).map((part, i) => i % 2 ? part : part.replace(SQL_BREAK_RE, (m, off) => i === 0 && off === 0 ? m : "\n")).join("")
         .replace(/\n(AND|OR)\b/gi, "\n  $1");
 }
 

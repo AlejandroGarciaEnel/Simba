@@ -367,6 +367,14 @@ Las pruebas cubren:
 - tests de report generation
 - tests de API
 
+Frontal (helpers de `interface/frontend/js/`, requiere Node 20+):
+
+```powershell
+npm install
+npm test            # node --test tests/frontend/
+npm run build:css   # regenera vendor/tailwind-*.css tras usar clases nuevas de Tailwind
+```
+
 No hace falta Oracle real ni un LLM real para ejecutar la suite principal.
 
 ---
