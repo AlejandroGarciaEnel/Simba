@@ -26,4 +26,4 @@ env/
 .idea/
 
 # Copilot Starter Kit
-.github/
+.github/node_modules/
