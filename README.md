@@ -232,7 +232,7 @@ dbAgent/
 │   │   ├── api_handlers.py
 │   │   └── main.py
 │   └── frontend/
-│       ├── app.js
+│       ├── js/
 │       ├── index.html
 │       └── styles.css
 ├── report/

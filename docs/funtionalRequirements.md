@@ -74,7 +74,7 @@ El sistema debe permitir:
 - `interface/backend/main.py`
 - `interface/backend/api_handlers.py`
 - `interface/frontend/index.html`
-- `interface/frontend/app.js`
+- `interface/frontend/js/*.js`
 
 La API gestiona:
 - chat

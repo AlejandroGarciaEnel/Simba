@@ -63,7 +63,7 @@ Abre tu navegador en: **http://localhost:8000** e inicia sesión. El primer admi
 │  Frontend (HTML + CSS + Vanilla JS)  │
 │  - index.html → estructura           │
 │  - styles.css → estilos              │
-│  - app.js → lógica interactiva       │
+│  - js/*.js → lógica interactiva      │
 └────────────┬────────────────────────┘
              │ HTTP (fetch)
              ▼
@@ -208,7 +208,8 @@ interface/
 └── frontend/
     ├── index.html
     ├── styles.css
-    └── app.js
+    ├── js/            (core, live, estado, queries, history-users, assistant, main)
+    └── tailwind/      (fuentes de vendor/tailwind-*.css → `npm run build:css`)
 ```
 
 ### Modificar estilos
@@ -221,7 +222,7 @@ interface/
 
 - **Nuevos endpoints**: Editar `backend/main.py`
 - **Lógica de chat**: Modificar `api_handlers.py` (ChatHandler)
-- **UI**: Actualizar `index.html` y `app.js`
+- **UI**: Actualizar `index.html` y el módulo correspondiente de `js/` (scripts clásicos; respetar el orden de carga). Si se usan clases nuevas de Tailwind, ejecutar `npm run build:css`
 
 ---
 

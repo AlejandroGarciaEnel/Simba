@@ -7,4 +7,4 @@
 @source "../sessions-dash.js";
 @source "../estado-plus.js";
 @source "../awr.js";
-@source "../app.js";
+@source "../js/*.js";
