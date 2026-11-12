@@ -48,6 +48,13 @@
         <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></symbol>
         <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15.5V3.5M7 8l5-4.5L17 8M4 15v3.5A2 2 0 0 0 6 20.5h12a2 2 0 0 0 2-2V15"/></symbol>
         <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8 20 3M16.5 6.5l3 3M14 9l2 2"/></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/></symbol>
+        <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15"/></symbol>
+        <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20.5c1.2-3.8 4.3-5.5 8-5.5s6.8 1.7 8 5.5"/></symbol>
+        <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9.5 3h5M10 3v6.2L4.6 18.4A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.4-2.6L14 9.2V3M7.2 15h9.6"/></symbol>
+        <symbol id="i-note" viewBox="0 0 24 24"><path d="M14.5 3.5H7A2.5 2.5 0 0 0 4.5 6v12A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5V8.5z"/><path d="M14.5 3.5v5h5M8.5 13h7M8.5 16.5h4.5"/></symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
     </svg>
     <!-- ========== Login ========== -->
     <section id="login-view" class="login-view" hidden>
@@ -299,12 +306,13 @@
     </div>
 
     <div class="toasts" id="toasts"></div>
-    <dialog class="sql-dialog" id="sql-dialog">
+    <dialog class="sql-dialog" id="sql-dialog" aria-labelledby="sql-dialog-title">
         <div class="sql-dialog-head">
             <div id="sql-dialog-title"></div>
             <button class="icon-btn" id="sql-dialog-close" title="Cerrar" aria-label="Cerrar"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
         </div>
         <div class="sql-dialog-body" id="sql-dialog-body"></div>
+        <div class="sql-dialog-foot" id="sql-dialog-foot"></div>
     </dialog>
     <!-- Confirmaciones y contraseñas (sustituye a prompt/confirm del navegador) -->
     <dialog class="ui-dialog" id="ui-dialog" aria-labelledby="ui-dialog-title">

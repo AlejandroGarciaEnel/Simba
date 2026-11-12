@@ -517,8 +517,8 @@ function renderAreaCard({ area, items, severity }) {
                         .filter(Boolean).join(" · ") }) : null,
             ) : null)),
         el("div", { class: "row-actions-bar" },
-            SEV[severity].order >= 1 ? el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente",
-                onclick: () => askAbout(area, shown) }) : null,
+            SEV[severity].order >= 1 ? el("button", { class: "btn btn-link",
+                onclick: () => askAbout(area, shown) }, icon("chat"), "Preguntar al asistente") : null,
             (AREA_LINKS[area] || []).filter((l) => !l.role || can(l.role)).map((l) => l.href
                 ? el("a", { class: "btn btn-link", href: l.href, text: l.label })
                 : el("button", { class: "btn btn-link", type: "button", text: l.label, onclick: () => switchView(l.view) }))));
@@ -793,9 +793,9 @@ function renderBoardCard(c) {
         el("small", { class: "muted", text: [c.esquema, c.persona || "sin asignar"].filter(Boolean).join(" · ") }),
         el("small", { text: `${cardMetric(c)} · ${c.semanas_top} sem.` }),
         c.mejora_pct != null ? el("small", { text: `Mejora ${fmtNum(c.mejora_pct, 1)} %` }) : null,
-        c.nota_local ? el("small", { class: "board-note", text: `📝 ${c.nota_local}` }) : null,
-        c.hallazgos.length ? el("small", { class: "board-hint", text: `💡 ${c.hallazgos.map((f) => QUERY_KIND[f.tipo]?.label || f.tipo).join(", ")}` }) : null,
-        c.estado_excel ? el("small", { class: "board-moved", text: `↪ en el Excel: ${c.estado_excel}` }) : null);
+        c.nota_local ? el("small", { class: "board-note" }, icon("note", "ico ico-xs"), c.nota_local) : null,
+        c.hallazgos.length ? el("small", { class: "board-hint" }, icon("bulb", "ico ico-xs"), c.hallazgos.map((f) => QUERY_KIND[f.tipo]?.label || f.tipo).join(", ")) : null,
+        c.estado_excel ? el("small", { class: "board-moved" }, icon("arrow", "ico ico-xs"), `en el Excel: ${c.estado_excel}`) : null);
     if (editable) {
         card.addEventListener("dragstart", (e) => {
             dragSqlId = c.sql_id;
@@ -907,14 +907,14 @@ function renderFindings(list, kindLabel = (t) => QUERY_KIND[t]?.label || t.repla
 }
 
 function askButton(sqlId) {
-    return el("button", { class: "btn btn-link", text: "💬 Preguntar al asistente", onclick: () => {
+    return el("button", { class: "btn btn-ghost", type: "button", onclick: () => {
         $("sql-dialog").close();
         openAssistant();
         $("chat-input").value = can("dba")
             ? `Analiza la SQL_ID ${sqlId} y explícame qué revisarías primero y por qué.`
             : `Sobre la SQL_ID ${sqlId} del informe semanal: ¿qué me recomiendas revisar primero y por qué?`;
         $("chat-input").focus();
-    } });
+    } }, icon("chat"), "Preguntar al asistente");
 }
 
 function simpleTable(columns, rows, fmt = {}) {
@@ -922,42 +922,124 @@ function simpleTable(columns, rows, fmt = {}) {
         el("thead", {}, el("tr", {}, columns.map(([, label]) => el("th", { text: label })))),
         el("tbody", {}, rows.map((r) => el("tr", {}, columns.map(([key]) => {
             const v = r[key];
-            return el("td", { text: fmt[key] ? fmt[key](v, r) : v == null ? "" : typeof v === "number" ? fmtNum(v, 2) : String(v).replace("T", " ").slice(0, 19) });
+            const iso = typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v);
+            return el("td", { text: fmt[key] ? fmt[key](v, r) : v == null ? "" : typeof v === "number" ? fmtNum(v, 2) : iso ? v.replace("T", " ").slice(0, 19) : String(v) });
         }))))));
+}
+
+const SQL_KEYWORDS = "SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|CROSS|GROUP|ORDER|BY|HAVING|UNION|ALL|DISTINCT|INSERT|INTO|VALUES|UPDATE|SET|DELETE|MERGE|USING|MATCHED|THEN|WHEN|CASE|ELSE|END|EXISTS|BETWEEN|LIKE|WITH|DESC|ASC|FETCH|FIRST|NEXT|ROWS|ONLY|OVER|PARTITION|BEGIN|DECLARE|CALL|COUNT|SUM|MIN|MAX|AVG|NVL|DECODE|TO_DATE|TO_CHAR|TRUNC|SYSDATE|ROWNUM|FOR|CONNECT|START|PRIOR";
+const SQL_TOKEN_RE = new RegExp(`('(?:[^']|'')*')|(:[A-Za-z0-9_]+)|\\b(${SQL_KEYWORDS})\\b|(\\b\\d+(?:\\.\\d+)?\\b)|(--[^\\n]*|/\\*[\\s\\S]*?\\*/)`, "gi");
+const SQL_BREAK_RE = /\s+(?=\b(?:FROM|WHERE|AND|OR|GROUP BY|ORDER BY|HAVING|UNION(?: ALL)?|(?:LEFT |RIGHT |FULL |INNER |CROSS )?(?:OUTER )?JOIN|SET|VALUES|WHEN|ELSE|FETCH)\b)/gi;
+
+// Inserta saltos de línea antes de las cláusulas principales (sin tocar literales entre comillas).
+function formatSql(text) {
+    if (/\n/.test(text.trim())) return text;
+    return text.split(/('(?:[^']|'')*')/).map((part, i) => i % 2 ? part : part.replace(SQL_BREAK_RE, (m, off) => off === 0 ? m : "\n")).join("")
+        .replace(/\n(AND|OR)\b/gi, "\n  $1");
+}
+
+function highlightSql(text) {
+    const out = [];
+    let last = 0;
+    for (const m of text.matchAll(SQL_TOKEN_RE)) {
+        if (m.index > last) out.push(text.slice(last, m.index));
+        const cls = m[1] ? "tk-str" : m[2] ? "tk-bind" : m[3] ? "tk-kw" : m[4] ? "tk-num" : "tk-cmt";
+        out.push(el("span", { class: cls, text: m[0] }));
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+}
+
+async function copyText(text, okMsg = "Copiado al portapapeles") {
+    try {
+        await navigator.clipboard.writeText(text);
+        toast(okMsg);
+    } catch {
+        toast("No se pudo copiar. Selecciona el texto y usa Ctrl/⌘+C.", "error");
+    }
+}
+
+function sqlBlock(text) {
+    const pretty = formatSql(text);
+    const canFormat = pretty !== text;
+    let formatted = canFormat, expanded = false;
+    const code = el("pre", { class: "sql-code", tabindex: 0, "aria-label": "Texto SQL" });
+    const paint = () => code.replaceChildren(...highlightSql(formatted ? pretty : text));
+    const fmtBtn = canFormat ? el("button", { class: "chip-btn", type: "button", "aria-pressed": "true", onclick: () => {
+        formatted = !formatted; fmtBtn.setAttribute("aria-pressed", String(formatted)); paint();
+    } }, icon("code"), "Formatear") : null;
+    const expBtn = el("button", { class: "chip-btn", type: "button", "aria-pressed": "false", onclick: () => {
+        expanded = !expanded; expBtn.setAttribute("aria-pressed", String(expanded)); wrap.classList.toggle("expanded", expanded);
+    } }, icon("expand"), "Expandir");
+    const wrap = el("section", { class: "sql-block" },
+        el("header", {},
+            el("span", { class: "sql-block-title" }, icon("code"), "Texto SQL",
+                el("small", { class: "muted", text: `${fmtNum(text.length)} caracteres` })),
+            el("div", { class: "sql-block-tools" }, fmtBtn, expBtn,
+                el("button", { class: "chip-btn", type: "button", onclick: () => copyText(text, "SQL copiada") }, icon("copy"), "Copiar"))),
+        code);
+    paint();
+    return wrap;
+}
+
+function slug(v) {
+    return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function dlgSection(title, ico, ...children) {
+    return el("section", { class: "dlg-sec" }, el("h3", { class: "dlg-sec-title" }, icon(ico), title), ...children);
 }
 
 function openSqlDetail(card) {
     const c = mergedBoard().find((b) => b.sql_id === card.sql_id) || card;
+    const onBoard = queriesData?.board?.some((b) => b.sql_id === c.sql_id);
     $("sql-dialog-title").replaceChildren(
         el("small", { class: "dlg-kicker", text: "Detalle de SQL" }),
-        el("h2", { class: "mono", text: c.sql_id }),
-        el("div", { class: "dlg-pills" }, [c.estado, c.prioridad, c.esquema, c.persona].filter(Boolean).map((t, i) => el("span", { class: `dlg-pill p${i}`, text: String(t) }))));
+        el("div", { class: "dlg-title-row" },
+            el("h2", { class: "mono", text: c.sql_id }),
+            el("button", { class: "dlg-copy", type: "button", title: "Copiar SQL_ID", "aria-label": "Copiar SQL_ID", onclick: () => copyText(c.sql_id, "SQL_ID copiado") }, icon("copy"))),
+        el("div", { class: "dlg-pills" },
+            c.estado ? el("span", { class: `dlg-pill st-${slug(c.estado)}` }, el("i", { class: "dlg-dot" }), String(c.estado)) : null,
+            c.prioridad ? el("span", { class: `dlg-pill prio-${slug(c.prioridad)}`, text: `Prioridad ${String(c.prioridad).toLowerCase()}` }) : null,
+            c.esquema ? el("span", { class: "dlg-pill" }, icon("disk", "ico ico-xs"), String(c.esquema)) : null,
+            el("span", { class: "dlg-pill" }, icon("user", "ico ico-xs"), c.persona ? String(c.persona) : "Sin responsable"),
+            c.en_top ? el("span", { class: "dlg-pill hot", text: "En el top" }) : null));
     const facts = [
-        ["En el top", c.en_top == null ? "" : c.en_top ? "Sí" : "No"], ["CPU esta semana", c.cpu_h != null ? `${fmtNum(c.cpu_h, 1)} h (${fmtNum(c.pct_cpu, 1)} %)` : ""],
-        ["CPU media", c.cpu_media_h != null ? `${fmtNum(c.cpu_media_h, 1)} h/sem` : ""], ["Ejecuciones/sem (media)", c.ejec_media != null ? fmtNum(c.ejec_media) : ""],
-        ["Semanas en top", c.semanas_top], ["Primera / última semana", [c.primera_semana, c.ultima_semana].filter(Boolean).join(" → ")],
+        ["CPU esta semana", c.cpu_h != null ? `${fmtNum(c.cpu_h, 1)} h (${fmtNum(c.pct_cpu, 1)} %)` : ""],
+        ["CPU media", c.cpu_media_h != null ? `${fmtNum(c.cpu_media_h, 1)} h/sem` : ""], ["Ejecuciones/sem", c.ejec_media != null ? fmtNum(c.ejec_media) : ""],
+        ["Semanas en top", c.semanas_top], ["En el top", c.en_top == null ? "" : c.en_top ? "Sí" : "No"],
+        ["Primera semana", c.primera_semana], ["Última semana", c.ultima_semana],
         ["Pendiente de", c.pendiente_de], ["Completado", c.fecha_completado],
-        ["Tiempo antes / después", c.tiempo_antes_s != null || c.tiempo_despues_s != null ? `${fmtNum(c.tiempo_antes_s, 2)} s → ${fmtNum(c.tiempo_despues_s, 2)} s` : ""],
+        ["Tiempo antes → después", c.tiempo_antes_s != null || c.tiempo_despues_s != null ? `${fmtNum(c.tiempo_antes_s, 2)} s → ${fmtNum(c.tiempo_despues_s, 2)} s` : ""],
         ["Mejora", c.mejora_pct != null ? `${fmtNum(c.mejora_pct, 1)} %` : ""], ["Comprobación", c.comprobacion],
     ].filter(([, v]) => v !== "" && v != null);
     const analysis = el("div", { id: "sql-analysis" });
-    $("sql-dialog-body").replaceChildren(
-        el("div", { class: "fact-grid" }, facts.map(([k, v]) => el("div", { class: "fact" }, el("span", { text: k }), el("strong", { text: String(v) })))),
-        c.sql_text ? el("pre", { class: "sql-snippet", text: c.sql_text }) : null,
-        c.query_mejora ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Propuesta de mejora" }), el("p", { text: c.query_mejora })) : null,
+    const main = [
+        facts.length ? el("div", { class: "fact-grid" }, facts.map(([k, v]) => el("div", { class: "fact" }, el("span", { text: k }), el("strong", { text: String(v) })))) : null,
+        c.sql_text ? sqlBlock(String(c.sql_text)) : el("p", { class: "muted dlg-empty", text: "El informe no incluye el texto de esta SQL." }),
+        c.query_mejora ? el("div", { class: "rec rec-ok" }, el("span", { class: "rec-label", text: "Propuesta de mejora" }), el("p", { class: "pre-line", text: c.query_mejora })) : null,
         c.notas || c.notas_analisis ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Notas del seguimiento" }),
             el("p", { class: "pre-line", text: [c.notas, c.notas_analisis].filter(Boolean).join("\n\n") })) : null,
-        c.hallazgos?.length ? el("h3", { text: "Recomendaciones del informe" }) : null,
-        c.hallazgos?.length ? renderFindings(c.hallazgos) : null,
-        can("dba") && queriesData?.board?.some((b) => b.sql_id === c.sql_id) ? renderBoardEditor(c)
-            : c.nota_local ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Nota del equipo" }),
-                el("p", { class: "pre-line", text: c.nota_local })) : null,
+        c.hallazgos?.length ? dlgSection(`Recomendaciones del informe (${c.hallazgos.length})`, "bulb", renderFindings(c.hallazgos)) : null,
+    ].filter(Boolean);
+    const side = [
         renderAssignMe(c),
+        can("dba") && onBoard ? renderBoardEditor(c)
+            : c.nota_local ? el("div", { class: "rec" }, el("span", { class: "rec-label", text: "Nota del equipo" }), el("p", { class: "pre-line", text: c.nota_local })) : null,
         renderComments(c),
-        el("div", { class: "inline-form" },
-            can("dba") ? el("button", { class: "btn btn-primary", text: "🔬 Analizar SQL en la BD", onclick: () => loadSqlAnalysis(c.sql_id, analysis) }) : null,
-            askButton(c.sql_id)),
+    ].filter(Boolean);
+    $("sql-dialog-body").replaceChildren(
+        el("div", { class: "dlg-layout" }, el("div", { class: "dlg-main" }, main), el("aside", { class: "dlg-side" }, side)),
         analysis);
+    $("sql-dialog-foot").replaceChildren(...[
+        can("dba") ? el("button", { class: "btn btn-primary", type: "button", onclick: async () => {
+            await loadSqlAnalysis(c.sql_id, analysis);
+        } }, icon("flask"), "Analizar SQL en la BD") : null,
+        askButton(c.sql_id),
+        el("span", { class: "dlg-foot-hint muted", text: "Esc para cerrar" }),
+    ].filter(Boolean));
+    $("sql-dialog-body").scrollTop = 0;
     $("sql-dialog").showModal();
 }
 
@@ -967,7 +1049,7 @@ function renderAssignMe(c) {
     const persona = (c.persona || "").trim().toLowerCase();
     const mine = persona === me || persona.split(/[^a-z0-9]+/).includes(me);
     if (persona && !mine) return null;
-    const btn = el("button", { class: mine ? "btn" : "btn btn-primary", type: "button", text: mine ? "Quitarme la asignación" : "🙋 Asignármela" });
+    const btn = el("button", { class: mine ? "btn" : "btn btn-primary", type: "button" }, icon("user"), mine ? "Quitarme la asignación" : "Asignármela");
     btn.addEventListener("click", async () => {
         btn.disabled = true;
         try {
@@ -978,8 +1060,10 @@ function renderAssignMe(c) {
             $("sql-dialog").close();
         } catch (err) { toast(err.message, "error"); btn.disabled = false; }
     });
-    return el("div", { class: "inline-form" }, btn,
-        el("small", { class: "muted", text: mine ? "Eres el responsable de esta SQL." : "Sin responsable: puedes hacerte cargo." }));
+    return el("div", { class: "assign-card" },
+        el("div", {}, el("strong", { text: mine ? "Eres el responsable" : "Sin responsable" }),
+            el("small", { class: "muted", text: mine ? "Esta SQL está asignada a ti." : "Puedes hacerte cargo de esta SQL." })),
+        btn);
 }
 
 function renderComments(c) {
@@ -1006,7 +1090,7 @@ function renderComments(c) {
         };
         input.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send(); });
         box.replaceChildren(
-            el("h3", {}, "💬 Comentarios ", el("span", { class: "cm-count", text: String(list.length) })),
+            el("h3", {}, icon("chat"), "Comentarios", el("span", { class: "cm-count", text: String(list.length) })),
             list.length ? el("ul", { class: "cm-list" }, list.map((m) => el("li", { class: "cm-item" },
                 el("span", { class: "cm-avatar", text: (m.author || "?").slice(0, 1).toUpperCase() }),
                 el("div", { class: "cm-body" },
@@ -1014,13 +1098,13 @@ function renderComments(c) {
                         el("strong", { text: m.author }),
                         el("span", { class: "cm-role", text: ROLE_LABEL[m.role] || m.role || "" }),
                         el("span", { class: "muted", text: fmtDate(m.at) }),
-                        (m.author === me || state.user?.role === "administrador") ? el("button", { class: "cm-del", title: "Borrar comentario", "aria-label": "Borrar comentario", text: "✕", onclick: async () => {
+                        (m.author === me || state.user?.role === "administrador") ? el("button", { class: "cm-del", title: "Borrar comentario", "aria-label": "Borrar comentario", onclick: async () => {
                             if (!await confirmDialog("¿Borrar este comentario?", "El comentario se eliminará para todos.")) return;
                             try {
                                 await api(`/query-board/${c.sql_id}/comments/${m.id}`, { method: "DELETE" });
                                 sync(list.filter((x) => x.id !== m.id));
                             } catch (err) { toast(err.message, "error"); }
-                        } }) : null),
+                        } }, icon("x", "ico ico-xs")) : null),
                     el("p", { class: "pre-line", text: m.text }))))) : el("p", { class: "muted", text: "Todavía no hay comentarios." }),
             can("dba") ? el("div", { class: "cm-form" }, input,
                 el("div", { class: "cm-actions" }, el("small", { class: "muted", text: `Se firmará como ${me} · Ctrl/⌘+Intro para enviar` }),
@@ -1049,6 +1133,7 @@ function anBars(rows) {
 async function loadSqlAnalysis(sqlId, box, force = false) {
     box.replaceChildren(el("div", { class: "an-loading" }, el("span", { class: "an-spin" }),
         el("p", { class: "muted", text: "Analizando en Oracle (solo lectura, unos segundos)…" })));
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
         const r = await api(`/sql-analysis/${encodeURIComponent(sqlId)}${force ? "?force=true" : ""}`);
         const s = r.resumen;
@@ -1060,11 +1145,11 @@ async function loadSqlAnalysis(sqlId, box, force = false) {
         const warns = r.hallazgos.filter((f) => f.urgencia === "Alta" || QUERY_KIND[f.tipo]?.sev === "WARNING").length;
         box.replaceChildren(el("div", { class: "an" },
             el("header", { class: "an-head" },
-                el("div", {}, el("h3", { text: "🔬 Análisis técnico" }), el("small", { class: "muted", text: `Generado ${r.generado.replace("T", " ")}` })),
-                el("button", { class: "btn", text: "↻ Repetir análisis", onclick: () => loadSqlAnalysis(sqlId, box, true) })),
+                el("div", {}, el("h3", {}, icon("flask"), "Análisis técnico"), el("small", { class: "muted", text: `Generado ${r.generado.replace("T", " ")} · solo lectura` })),
+                el("button", { class: "btn", type: "button", onclick: () => loadSqlAnalysis(sqlId, box, true) }, icon("refresh"), "Repetir análisis")),
             el("div", { class: "an-kpis" },
                 anKpi("Cursores en memoria", s.cursores_en_memoria),
-                anKpi("Planes en AWR (30 d)", s.planes_awr, s.planes_awr > 1 ? "warn" : ""),
+                anKpi("Planes AWR (30 d)", s.planes_awr, s.planes_awr > 1 ? "warn" : ""),
                 anKpi("Plan principal", s.plan_principal ?? "n/d"),
                 anKpi("Baseline", s.baselines.length ? "Sí" : "No", s.baselines.length ? "ok" : ""),
                 anKpi("Perfil SQL", s.perfiles.length ? "Sí" : "No", s.perfiles.length ? "ok" : ""),
@@ -1073,8 +1158,8 @@ async function loadSqlAnalysis(sqlId, box, force = false) {
             anCard("Hallazgos", r.hallazgos.length ? renderFindings(r.hallazgos) : el("p", { class: "muted", text: "Las reglas actuales no detectan nada destacable." })),
             el("div", { class: "an-grid" },
                 r.tendencia.length ? anCard("Tendencia diaria (14 días) · CPU h", anBars(r.tendencia),
-                    simpleTable([["DIA", "Día"], ["EJECUCIONES", "Ejec."], ["ELAPSED_S_EJEC", "s/ejec."], ["CPU_H", "CPU (h)"], ["PLANES", "Planes"]], r.tendencia,
-                        { DIA: (v) => String(v).slice(0, 10), EJECUCIONES: (v) => fmtNum(v), PLANES: (v) => String(v) })) : null,
+                    el("details", { class: "an-det an-det-flat" }, el("summary", { text: "Ver datos diarios" }), simpleTable([["DIA", "Día"], ["EJECUCIONES", "Ejec."], ["ELAPSED_S_EJEC", "s/ejec."], ["CPU_H", "CPU (h)"], ["PLANES", "Planes"]], r.tendencia,
+                        { DIA: (v) => String(v).slice(0, 10), EJECUCIONES: (v) => fmtNum(v), PLANES: (v) => String(v) }))) : null,
                 r.planes.length ? anCard("Planes en el AWR (30 días)",
                     simpleTable([["PLAN_HASH_VALUE", "Plan"], ["EJECUCIONES", "Ejec."], ["ELAPSED_S_EJEC", "s/ejec."], ["LECTURAS_EJEC", "Lecturas/ejec."], ["FILAS_EJEC", "Filas/ejec."], ["CPU_H", "CPU (h)"], ["PRIMERA_VEZ", "Desde"], ["ULTIMA_VEZ", "Hasta"]], r.planes,
                         { PLAN_HASH_VALUE: (v) => String(v) === main ? `${v} ★` : String(v), EJECUCIONES: (v) => fmtNum(v), LECTURAS_EJEC: (v) => fmtNum(v) })) : null),
