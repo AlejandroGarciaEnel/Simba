@@ -77,7 +77,7 @@ const AwrView = (() => {
             });
             card.append(btn);
             if (weekly.files.length) {
-                const tb = el("table", { class: "awr-files" }, el("tr", {}, el("th", { text: "Fichero" }), el("th", { text: "Modificado" }), el("th")));
+                const tb = el("table", { class: "awr-files" }, el("tr", {}, el("th", { text: "Fichero" }), el("th", { text: "Modificado" }), el("th", {}, el("span", { class: "sr-only", text: "Acciones" }))));
                 for (const f of weekly.files) {
                     const dl = el("button", { class: "btn btn-small", text: "Descargar" });
                     dl.addEventListener("click", async () => {

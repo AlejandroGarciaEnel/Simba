@@ -80,7 +80,7 @@ function renderQueries() {
         counter(String(k.completadas_que_reaparecen), `Completadas aún en el top · ${k.completadas_fuera_del_top} ya fuera`),
         counter(String(k.estancadas), "Estancadas (varias semanas)"),
     );
-    document.querySelectorAll("#queries-modes button").forEach((b) => b.classList.toggle("active", b.dataset.mode === queriesMode));
+    document.querySelectorAll("#queries-modes button").forEach((b) => { b.classList.toggle("active", b.dataset.mode === queriesMode); b.setAttribute("aria-pressed", String(b.dataset.mode === queriesMode)); });
     const body = queriesMode === "tablero" ? renderBoard(filteredCards(mergedBoard()), data.states || [])
         : queriesMode === "lista" ? renderList(filteredCards(mergedBoard()))
         : renderRecommendations(filteredCards(data.items));

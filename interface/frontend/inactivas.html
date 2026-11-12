@@ -31,10 +31,10 @@
             <div class="mb-3 flex flex-wrap items-center gap-3">
                 <input id="q" type="search" placeholder="Filtrar por usuario, máquina, programa, módulo…"
                        class="min-w-[280px] flex-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100 ring-1 ring-white/10 outline-none placeholder:text-slate-500 focus:ring-indigo-400">
-                <select id="inst" class="rounded-lg bg-slate-800 px-3 py-2 text-sm ring-1 ring-white/10">
+                <select id="inst" aria-label="Nodo" class="rounded-lg bg-slate-800 px-3 py-2 text-sm ring-1 ring-white/10">
                     <option value="">Todos los nodos</option>
                 </select>
-                <select id="min" class="rounded-lg bg-slate-800 px-3 py-2 text-sm ring-1 ring-white/10">
+                <select id="min" aria-label="Antigüedad mínima" class="rounded-lg bg-slate-800 px-3 py-2 text-sm ring-1 ring-white/10">
                     <option value="0">Cualquier antigüedad</option>
                     <option value="3600">&gt; 1 h</option>
                     <option value="14400">&gt; 4 h</option>
@@ -42,7 +42,7 @@
                 </select>
             </div>
             <div id="chips" class="mb-3 flex flex-wrap gap-2"></div>
-            <div class="overflow-auto rounded-xl ring-1 ring-white/10" style="max-height:65vh">
+            <div class="overflow-auto rounded-xl ring-1 ring-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400" style="max-height:65vh" tabindex="0" role="region" aria-label="Tabla de sesiones inactivas">
                 <table class="w-full text-left text-sm">
                     <thead id="thead" class="sticky top-0 bg-slate-800 text-xs uppercase tracking-wide text-slate-400"></thead>
                     <tbody id="tbody" class="divide-y divide-white/5"></tbody>

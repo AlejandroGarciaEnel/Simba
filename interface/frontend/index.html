@@ -59,7 +59,7 @@
         <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
     </svg>
     <!-- ========== Login ========== -->
-    <section id="login-view" class="login-view" hidden>
+    <main id="login-view" class="login-view" hidden>
         <form id="login-form" class="login-card" autocomplete="on">
             <div class="brand brand-lg">
                 <svg class="brand-mark" aria-hidden="true"><use href="#i-logo"/></svg>
@@ -91,7 +91,7 @@
                 </ul>
             </div>
         </aside>
-    </section>
+    </main>
 
     <!-- ========== Aplicación ========== -->
     <div id="app-view" class="app" hidden>
@@ -99,7 +99,7 @@
             <div class="brand">
                 <svg class="brand-mark" aria-hidden="true"><use href="#i-logo"/></svg>
                 <div>
-                    <strong>SIMBA</strong>
+                    <h1 class="brand-name">SIMBA</h1>
                     <small>Monitor Oracle</small>
                 </div>
             </div>
@@ -165,7 +165,7 @@
                     <p class="filter-note" id="filter-note" hidden></p>
                     <h3 class="section-title" id="attn-title" hidden>Requiere atención</h3>
                     <div class="rows" id="area-cards"></div>
-                    <h3 class="section-title section-toggle" id="ok-title" hidden role="button" tabindex="0"></h3>
+                    <div class="section-title section-toggle" id="ok-title" hidden role="button" tabindex="0"></div>
                     <div class="rows rows-ok" id="ok-cards"></div>
                     <p class="foot-note">Los hallazgos son indicios, no causas confirmadas; las recomendaciones son sugerencias que debe verificar el equipo funcional.</p>
 
@@ -190,7 +190,7 @@
                         </div>
                         <div class="inline-form">
                             <label class="search-field"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="queries-search" placeholder="SQL_ID, esquema o persona" aria-label="Buscar"></label>
-                            <select id="queries-filter">
+                            <select id="queries-filter" aria-label="Filtrar recomendaciones">
                                 <option value="">Todas las recomendaciones</option>
                                 <option value="seguimiento">Seguimiento (nuevas, estancadas, completadas)</option>
                                 <option value="tecnica">Pistas técnicas</option>
@@ -199,10 +199,10 @@
                         </div>
                     </div>
                     <div class="counters" id="queries-counters"></div>
-                    <div class="segmented" id="queries-modes" role="tablist">
-                        <button data-mode="tablero" class="active"><svg class="ico" aria-hidden="true"><use href="#i-board"/></svg>Tablero</button>
-                        <button data-mode="lista"><svg class="ico" aria-hidden="true"><use href="#i-list"/></svg>Lista</button>
-                        <button data-mode="recomendaciones"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>Recomendaciones</button>
+                    <div class="segmented" id="queries-modes" role="group" aria-label="Modo de vista">
+                        <button data-mode="tablero" class="active" aria-pressed="true"><svg class="ico" aria-hidden="true"><use href="#i-board"/></svg>Tablero</button>
+                        <button data-mode="lista" aria-pressed="false"><svg class="ico" aria-hidden="true"><use href="#i-list"/></svg>Lista</button>
+                        <button data-mode="recomendaciones" aria-pressed="false"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>Recomendaciones</button>
                     </div>
                     <p class="note"><svg class="ico" aria-hidden="true"><use href="#i-info"/></svg><span>Calculado a partir de los Excel del informe semanal y del seguimiento (sin IA). Los DBA pueden arrastrar
                         tarjetas y añadir notas: se guardan aparte y no modifican los Excel. Son sugerencias: antes de actuar, deben
@@ -218,7 +218,7 @@
                             <p class="muted">Quién preguntó, cuándo y qué se le devolvió (desde la web o desde el asistente).</p>
                         </div>
                         <div class="inline-form">
-                            <select id="history-limit">
+                            <select id="history-limit" aria-label="Número de revisiones">
                                 <option value="20">Últimas 20</option>
                                 <option value="50">Últimas 50</option>
                                 <option value="200">Últimas 200</option>
@@ -270,7 +270,7 @@
                     </form>
                     <div class="table-wrap">
                         <table class="table" id="users-table">
-                            <thead><tr><th>Usuario</th><th>Rol</th><th>Activo</th><th>Alta</th><th></th></tr></thead>
+                            <thead><tr><th>Usuario</th><th>Rol</th><th>Activo</th><th>Alta</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                             <tbody></tbody>
                         </table>
                     </div>
@@ -278,7 +278,7 @@
             </main>
 
             <!-- ========== Asistente (opcional) ========== -->
-            <aside class="assistant" id="assistant" aria-hidden="true" aria-label="Asistente SIMBA">
+            <aside class="assistant" id="assistant" aria-hidden="true" inert aria-label="Asistente SIMBA">
                 <div class="assistant-head">
                     <span class="assistant-mark" aria-hidden="true"><svg class="ico"><use href="#i-spark"/></svg></span>
                     <div>

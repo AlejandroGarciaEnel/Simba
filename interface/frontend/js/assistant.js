@@ -5,6 +5,7 @@
 function openAssistant() {
     document.body.classList.add("assistant-open");
     $("assistant").setAttribute("aria-hidden", "false");
+    $("assistant").inert = false;
     $("assistant-toggle").setAttribute("aria-expanded", "true");
     setTimeout(() => $("chat-input").focus(), 200);
 }
@@ -12,6 +13,7 @@ function openAssistant() {
 function closeAssistant() {
     document.body.classList.remove("assistant-open");
     $("assistant").setAttribute("aria-hidden", "true");
+    $("assistant").inert = true;
     $("assistant-toggle").setAttribute("aria-expanded", "false");
 }
 

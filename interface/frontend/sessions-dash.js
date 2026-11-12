@@ -90,7 +90,7 @@ const SessionsDash = (() => {
         const tone = TONE[cls];
         return el("section", { class: `sd-panel sd-stat sd-${cls} p-4 min-w-0` },
             el("div", { class: "flex items-center justify-between" },
-                el("h4", { class: "text-xs font-semibold uppercase tracking-wider text-slate-400", text: title }),
+                el("h3", { class: "text-xs font-semibold uppercase tracking-wider text-slate-400", text: title }),
                 el("span", { class: "sd-stat-ico" }, ico(icon))),
             el("div", { class: `mt-1 flex items-baseline gap-1 text-3xl font-semibold tabular-nums ${tone.text}` },
                 Number(value).toLocaleString("es-ES"), unit ? el("small", { class: "text-lg font-normal text-slate-500", text: unit }) : null),
@@ -132,7 +132,7 @@ const SessionsDash = (() => {
         const iw = W - m.l - m.r, ih = H - m.t - m.b;
         const box = el("section", { class: `${PANEL}${opts.span ? " xl:col-span-2" : ""}` },
             el("div", { class: "mb-2 flex flex-wrap items-baseline gap-x-3" },
-                el("h4", { class: "text-sm font-semibold text-slate-200", text: title }),
+                el("h3", { class: "text-sm font-semibold text-slate-200", text: title }),
                 sub ? el("span", { class: "text-xs text-slate-500", text: sub }) : null));
         if (points.length < 2) {
             box.append(el("p", { class: "py-16 text-center text-sm text-slate-500", text: "Recogiendo datos… (hacen falta al menos 2 revisiones)" }));
@@ -316,7 +316,7 @@ const SessionsDash = (() => {
         const allowed = typeof can === "function" && can("dba");
         return el("section", { class: `${PANEL} flex flex-wrap items-center gap-4` },
             el("div", {},
-                el("h4", { class: "text-base font-medium text-slate-200", text: "Listado completo de sesiones inactivas" }),
+                el("h3", { class: "text-base font-medium text-slate-200", text: "Listado completo de sesiones inactivas" }),
                 el("p", { class: "text-sm text-slate-400", text: "Todas las sesiones inactivas > 30 min de ambos nodos, con filtros, orden y exportación." })),
             allowed
                 ? el("a", { href: "/inactivas",
@@ -366,7 +366,7 @@ const SessionsDash = (() => {
     function chainsPanel() {
         const total = blocking.waiting.length;
         const box = el("section", { class: PANEL }, el("div", { class: "mb-3 flex flex-wrap items-center justify-between gap-2" },
-            el("h4", { class: "text-sm font-medium text-slate-200", text: `Cadenas de bloqueo · ${blocking.roots.length} bloqueante(s), ${total} bloqueada(s)` }),
+            el("h3", { class: "text-sm font-medium text-slate-200", text: `Cadenas de bloqueo · ${blocking.roots.length} bloqueante(s), ${total} bloqueada(s)` }),
             el("span", { class: "text-xs text-slate-500", text: `Actualizado ${blocking.taken_at ? blocking.taken_at.slice(11) : ""}` })));
         const key = (i, sid) => `${i}:${sid}`;
         const byRoot = new Map();
@@ -408,7 +408,7 @@ const SessionsDash = (() => {
         if (blocking?.roots?.length) return chainsPanel();
         const blo = (current?.findings || []).find((f) => f.area === "Bloqueos");
         const rows = blo?.details || [];
-        const box = el("section", { class: PANEL }, el("h4", { class: "mb-3 text-sm font-medium text-slate-200", text: "Sesiones bloqueantes (última revisión)" }));
+        const box = el("section", { class: PANEL }, el("h3", { class: "mb-3 text-sm font-medium text-slate-200", text: "Sesiones bloqueantes (última revisión)" }));
         if (!rows.length) {
             box.append(el("p", { class: "rounded-xl bg-emerald-500/10 py-8 text-center text-sm text-emerald-300", text: "No hay sesiones bloqueadas" }));
             return box;
@@ -437,7 +437,7 @@ const SessionsDash = (() => {
         const ina = inactiveStatus(last.inactive);
         host.replaceChildren(
             el("header", { class: "flex flex-wrap items-center justify-between gap-2" },
-                el("h3", { class: "text-lg font-semibold text-slate-100", text: "Sesiones · inactivas y bloqueadas" }),
+                el("h2", { class: "text-lg font-semibold text-slate-100", text: "Sesiones · inactivas y bloqueadas" }),
                 el("span", { class: "inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300 ring-1 ring-emerald-500/30" },
                     el("span", { class: "h-2 w-2 animate-pulse rounded-full bg-emerald-400" }),
                     `En vivo · ${fmtTime(last.t)}`)),
